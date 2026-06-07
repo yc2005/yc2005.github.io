@@ -816,6 +816,7 @@
             <div id="notifyHelpText" style="font-size:0.86rem;color:var(--text);line-height:1.7;"></div>
             <div class="btn-row" style="margin-top:14px;">
                 <button class="btn btn-outline btn-sm" onclick="copyAppUrl()">📋 复制网址</button>
+                <button class="btn btn-outline btn-sm" onclick="forceUpdateApp()">🔄 强制更新</button>
                 <button class="btn btn-primary btn-sm" onclick="closeNotifyHelp()">知道啦</button>
             </div>
         </div>
@@ -2474,9 +2475,35 @@
             function registerNotifySW() {
                 if (!('serviceWorker' in navigator)) return;
                 try {
-                    navigator.serviceWorker.register('sw.js').catch((err) => {
+                    navigator.serviceWorker.register('sw.js').then((reg) => {
+                        // 主动检查更新
+                        try { reg.update(); } catch(_){}
+                        // 发现有新版本在等待 → 让它立刻接管
+                        function nudge(sw) {
+                            if (sw) { try { sw.postMessage({ type: 'skip-waiting' }); } catch(_){} }
+                        }
+                        if (reg.waiting) nudge(reg.waiting);
+                        reg.addEventListener('updatefound', () => {
+                            const nw = reg.installing;
+                            if (!nw) return;
+                            nw.addEventListener('statechange', () => {
+                                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                                    nudge(nw);
+                                }
+                            });
+                        });
+                    }).catch((err) => {
                         console.warn('SW 注册失败（不影响前台通知）:', err);
                     });
+
+                    // 新 SW 接管后，自动刷新一次，确保看到最新页面（只刷一次，避免循环）
+                    let _reloaded = false;
+                    navigator.serviceWorker.addEventListener('controllerchange', () => {
+                        if (_reloaded) return;
+                        _reloaded = true;
+                        location.reload();
+                    });
+
                     // 点击通知后，SW 会发消息让页面跳到订单页
                     navigator.serviceWorker.addEventListener('message', (e) => {
                         if (e.data && e.data.type === 'open-orders') {
@@ -2565,6 +2592,23 @@
                     document.execCommand('copy'); document.body.removeChild(ta);
                     cb();
                 } catch(e) { showToast('复制失败，请手动复制地址栏网址'); }
+            }
+            // 强制更新：注销后台程序 + 清空所有缓存 + 重新加载，彻底拿到最新版
+            async function forceUpdateApp() {
+                showToast('🔄 正在强制更新…');
+                try {
+                    if ('serviceWorker' in navigator) {
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        await Promise.all(regs.map(r => r.unregister()));
+                    }
+                    if (window.caches && caches.keys) {
+                        const keys = await caches.keys();
+                        await Promise.all(keys.map(k => caches.delete(k)));
+                    }
+                } catch (e) { console.warn('强制更新清理出错:', e); }
+                // 加时间戳参数，绕过任何中间缓存
+                const base = location.href.split('#')[0].split('?')[0];
+                setTimeout(() => { location.replace(base + '?v=' + Date.now()); }, 400);
             }
             async function ensureNotifyPermission(askNow) {
                 if (!('Notification' in window)) return false;
@@ -3198,6 +3242,7 @@
             window.viewOrdersFromNotice = viewOrdersFromNotice;
             window.closeNotifyHelp = closeNotifyHelp;
             window.copyAppUrl = copyAppUrl;
+            window.forceUpdateApp = forceUpdateApp;
             window.addCategory = addCategory;
             window.closeRenameModal = closeRenameModal;
 
