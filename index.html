@@ -2,8 +2,16 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>💕 我们的甜蜜小窝 - 云端同步版</title>
+    <!-- PWA：让“添加到主屏幕”后成为可收通知的独立App -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ff6b9d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="甜蜜小窝">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <style>
         :root {
             --pink: #ff6b9d;
@@ -2364,28 +2372,22 @@
             // ============ 手机系统通知 ============
             // 说明：网页通知会在浏览器/PWA运行时弹出系统级横幅；
             // 若想在App完全关闭时也收到，需要把页面“添加到主屏幕”当作App打开。
-            // 注册一个极简 service worker（用 Blob 内联，无需额外文件），
-            // 让通知点击能聚焦回页面、并在后台标签页时也能弹系统横幅。
+            // 注册 service worker（必须是同源真实文件 sw.js，
+            // Blob 内联的 SW 无法用于通知，这也是之前“不支持通知”的根因之一）。
+            // sw.js 与本页面放在同一目录即可。
             function registerNotifySW() {
                 if (!('serviceWorker' in navigator)) return;
                 try {
-                    const swCode = `
-                        self.addEventListener('install', e => self.skipWaiting());
-                        self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
-                        self.addEventListener('notificationclick', function(e) {
-                            e.notification.close();
-                            e.waitUntil(
-                                self.clients.matchAll({ type:'window', includeUncontrolled:true }).then(function(list){
-                                    for (const c of list) { if ('focus' in c) return c.focus(); }
-                                    if (self.clients.openWindow) return self.clients.openWindow('./');
-                                })
-                            );
-                        });
-                    `;
-                    const blob = new Blob([swCode], { type: 'text/javascript' });
-                    const url = URL.createObjectURL(blob);
-                    navigator.serviceWorker.register(url).catch(() => {/* 忽略：不影响前台通知 */});
-                } catch(e) { /* 某些浏览器禁止 blob SW，忽略即可，前台通知仍可用 */ }
+                    navigator.serviceWorker.register('sw.js').catch((err) => {
+                        console.warn('SW 注册失败（不影响前台通知）:', err);
+                    });
+                    // 点击通知后，SW 会发消息让页面跳到订单页
+                    navigator.serviceWorker.addEventListener('message', (e) => {
+                        if (e.data && e.data.type === 'open-orders') {
+                            try { switchPage('orders'); } catch(_){}
+                        }
+                    });
+                } catch(e) { /* 忽略 */ }
             }
 
             function notifyPermissionState() {
@@ -2440,13 +2442,8 @@
                     return true;
                 } catch(e) { return false; }
             }
-            // 一个粉色爱心图标作为通知图标（纯 SVG 路径，避免 btoa 处理 emoji 报错）
-            const NOTIFY_ICON = 'data:image/svg+xml;base64,' + btoa(
-                '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">' +
-                '<rect width="96" height="96" rx="20" fill="#ffe0ec"/>' +
-                '<path d="M48 74C26 58 16 48 16 36c0-9 7-16 16-16 6 0 11 3 16 9 5-6 10-9 16-9 9 0 16 7 16 16 0 12-10 22-32 38z" fill="#ff6b9d"/>' +
-                '</svg>'
-            );
+            // 通知图标（用应用图标 PNG，Android 上显示更清晰）
+            const NOTIFY_ICON = 'icon-192.png';
 
             function showOrderNotice(o) {
                 const items = Array.isArray(o.items) ? o.items : [];
@@ -2556,15 +2553,23 @@
                     refreshNotifyFab();
                     notifyFab.addEventListener('click', async () => {
                         const state = notifyPermissionState();
-                        if (state === 'unsupported') { showToast('⚠️ 此浏览器不支持系统通知'); return; }
+                        if (state === 'unsupported') {
+                            // 多半是：不是从主屏图标打开，或浏览器内核不支持
+                            const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+                            if (!standalone) {
+                                showToast('请先用「添加到主屏幕」的图标打开本应用，再开启通知', 4000);
+                            } else {
+                                showToast('此浏览器内核不支持网页通知，建议改用 Chrome 打开并安装', 4500);
+                            }
+                            return;
+                        }
                         if (state === 'granted') {
-                            // 已开启 → 发一条测试通知
                             const ok = fireSystemNotification('💕 通知已开启', '对方提交订单时，你会在这里收到提醒~');
                             showToast(ok ? '🔔 已发送一条测试通知' : '🔔 通知已开启');
                             return;
                         }
                         if (state === 'denied') {
-                            showToast('🔕 通知被系统拒绝了，请到手机/浏览器设置里手动允许');
+                            showToast('🔕 通知被系统拒绝了，请到手机/浏览器设置里手动允许', 4000);
                             return;
                         }
                         // default → 请求授权（必须由这次点击触发）
