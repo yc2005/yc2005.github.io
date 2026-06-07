@@ -250,6 +250,15 @@
             border-radius: 50%; display: flex; align-items: center; justify-content: center;
             font-size: 0.8rem; animation: popIn 0.3s ease;
         }
+        .menu-item .item-image { width: 100%; height: 140px; object-fit: cover; border-radius: var(--radius-sm); }
+        .menu-item .delete-item {
+            position: absolute; top: 8px; left: 8px; z-index: 2;
+            background: rgba(255,255,255,0.9); border: none; border-radius: 50%;
+            width: 28px; height: 28px; cursor: pointer; font-size: 0.85rem; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.12); transition: var(--transition);
+        }
+        .menu-item .delete-item:hover { background: #ffdfe6; }
         @keyframes popIn {
             0% { transform: scale(0); opacity: 0; }
             70% { transform: scale(1.2); }
@@ -495,7 +504,10 @@
         <section class="page" id="page-order">
             <div class="section-header">
                 <h2 class="section-title">🍽️ 美味菜单</h2>
-                <button class="btn btn-outline btn-sm" onclick="openCart()">🛒 购物车 <span id="cartCountInline">(0)</span></button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-primary btn-sm" onclick="openMenuItemModal()">+ 添加菜品</button>
+                    <button class="btn btn-outline btn-sm" onclick="openCart()">🛒 购物车 <span id="cartCountInline">(0)</span></button>
+                </div>
             </div>
             <div class="menu-categories" id="menuCategories">
                 <button class="cat-btn active" data-cat="all">全部</button>
@@ -594,6 +606,32 @@
         </div>
     </div>
 
+    <!-- 🍽️ 添加菜品弹窗 -->
+    <div class="modal-overlay" id="menuItemModalOverlay">
+        <div class="modal" id="menuItemModal">
+            <h3>🍽️ 添加新菜品</h3>
+            <div class="form-group"><label>名称</label><input type="text" id="miName" placeholder="例如：芝士焗饭"></div>
+            <div class="form-group"><label>价格（¥）</label><input type="number" id="miPrice" min="0" step="1" placeholder="例如：38"></div>
+            <div class="form-group"><label>简介（可选）</label><input type="text" id="miDesc" placeholder="一句话描述"></div>
+            <div class="form-group"><label>分类</label>
+                <select id="miCat">
+                    <option value="主食">主食</option>
+                    <option value="小食">小食</option>
+                    <option value="饮品">饮品</option>
+                    <option value="甜品">甜品</option>
+                </select>
+            </div>
+            <div class="form-group"><label>表情图标（可选，不上传图片时显示）</label><input type="text" id="miEmoji" placeholder="例如：🍛"></div>
+            <div class="form-group"><label>🖼️ 图片URL（可选）</label><input type="text" id="miImageUrl" placeholder="输入图片链接"></div>
+            <div class="form-group"><label>📤 上传图片（可选）</label><input type="file" id="miImageFile" accept="image/*"></div>
+            <img class="image-preview" id="miImagePreview">
+            <div class="btn-row">
+                <button class="btn btn-outline btn-sm" onclick="closeMenuItemModal()">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="saveMenuItem()">💾 保存并同步</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         (function() {
             // ============ GitHub 配置 ============
@@ -629,6 +667,7 @@
 
             let cart = [];
             let memories = [];
+            let customMenu = [];
             let currentCat = 'all';
             let currentPage = 'home';
             let anniversaryDate = '2024-01-01';
@@ -666,6 +705,9 @@
                     if (r.status === 404) {
                         throw { type: 'not-found', status: 404, message: '仓库或资源不存在 (404)' };
                     }
+                    if (r.status === 422) {
+                        throw { type: 'too-large', status: 422, message: '内容过大，通常是图片太大 (422)' };
+                    }
                     if (!r.ok) {
                         throw { type: 'http', status: r.status, message: 'GitHub API ' + r.status };
                     }
@@ -679,7 +721,8 @@
                     memory: 'sweet-memory',
                     anniversary: 'sweet-anniversary',
                     cart: 'sweet-cart',
-                    order: 'sweet-order'
+                    order: 'sweet-order',
+                    menu: 'sweet-menu'
                 };
                 return labels[type] || 'sweet-data';
             }
@@ -690,7 +733,9 @@
                     .then(issues => {
                         return issues.map(iss => {
                             try {
-                                return JSON.parse(iss.body);
+                                const d = JSON.parse(iss.body);
+                                if (d && typeof d === 'object') d.__num = iss.number;
+                                return d;
                             } catch (e) {
                                 return null;
                             }
@@ -760,6 +805,8 @@
                 } else if (type === 'bad-token') {
                     setSyncStatus('error', 'Token 已失效·点此重设');
                     openTokenModal(true);
+                } else if (type === 'too-large') {
+                    setSyncStatus('error', '图片太大·压缩后仍超限');
                 } else if (type === 'forbidden') {
                     setSyncStatus('error', '无权限/频率限制');
                 } else if (type === 'not-found') {
@@ -774,9 +821,10 @@
                 if (!GITHUB_TOKEN) { setSyncStatus('no-token'); openTokenModal(); return; }
                 syncHealthy = true;
                 setSyncStatus('syncing');
-                const [memData, annData] = await Promise.all([
+                const [memData, annData, menuData] = await Promise.all([
                     getIssuesByType('memory'),
-                    getIssuesByType('anniversary')
+                    getIssuesByType('anniversary'),
+                    getIssuesByType('menu')
                 ]);
                 if (memData.length > 0) {
                     memories = memData.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -786,6 +834,10 @@
                     const latestAnn = annData.slice().sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0))[0];
                     if (latestAnn && latestAnn.date) anniversaryDate = latestAnn.date;
                 }
+                // 自定义菜品（按创建时间正序）
+                customMenu = menuData.map(m => { m.custom = true; return m; })
+                    .sort((a,b) => new Date(a.createdAt||0) - new Date(b.createdAt||0));
+                saveCache();
                 if (syncHealthy) setSyncStatus('synced');
             }
 
@@ -802,23 +854,23 @@
             async function deleteMemoryFromCloud(index) {
                 const memory = memories[index];
                 if (!memory) return;
-                // 找到对应的Issue并关闭
-                try {
-                    const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('memory')}&state=open&per_page=100`);
-                    for (const iss of issues) {
-                        try {
-                            const data = JSON.parse(iss.body);
-                            if (data.createdAt === memory.createdAt) {
-                                await closeIssue(iss.number);
-                                break;
-                            }
-                        } catch(e) {}
-                    }
-                } catch(e) {
-                    console.warn('删除Issue失败:', e);
-                }
+                // 乐观移除：先更新界面，再后台关闭对应 Issue
                 memories.splice(index, 1);
                 renderMemories();
+                saveCache();
+                try {
+                    if (memory.__num) {
+                        await closeIssue(memory.__num);
+                    } else {
+                        const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('memory')}&state=open&per_page=100`);
+                        for (const iss of issues) {
+                            try {
+                                const data = JSON.parse(iss.body);
+                                if (data.createdAt === memory.createdAt) { await closeIssue(iss.number); break; }
+                            } catch(e) {}
+                        }
+                    }
+                } catch(e) { console.warn('删除Issue失败:', e); }
             }
 
             async function saveAnniversaryToCloud(date) {
@@ -836,19 +888,24 @@
             async function init() {
                 createHearts();
                 setupEventListeners();
-                // 先加载云端数据
-                await loadCloudData();
-                // 然后渲染
+                // 先用本地缓存秒开界面，无需等待网络
+                loadCache();
                 renderMemories();
                 renderMenu();
                 updateCartUI();
                 updateDaysCounter();
                 switchPage('home');
+                // 再拉取云端最新数据并刷新
+                await loadCloudData();
+                renderMemories();
+                renderMenu(currentCat);
+                updateDaysCounter();
                 // 定期同步（每30秒）—— 没有 Token 时不轮询，避免反复弹窗
                 setInterval(async () => {
                     if (!isSyncing && GITHUB_TOKEN) {
                         await loadCloudData();
                         renderMemories();
+                        renderMenu(currentCat);
                         updateDaysCounter();
                     }
                 }, 30000);
@@ -979,24 +1036,36 @@
                 }
                 if (!content) { showToast('⚠️ 请输入内容'); return; }
                 if (!date) { showToast('⚠️ 请选择日期'); return; }
-                const memory = { date, content, mood, image: finalImage || null };
+                const memory = { date, content, mood, image: finalImage || null, createdAt: new Date().toISOString() };
+                // 乐观更新：先显示并关闭弹窗，再后台同步，消除等待感
                 isSyncing = true;
-                const ok = await saveMemoryToCloud(memory);
-                isSyncing = false;
+                memories.unshift(memory);
                 renderMemories();
+                saveCache();
+                closeMemoryModal();
+                setSyncStatus('syncing');
+                const ok = await createIssue('memory', memory);
+                isSyncing = false;
                 if (ok) {
-                    closeMemoryModal();
+                    setSyncStatus('synced');
+                    saveCache();
                     showToast('💌 回忆已保存并同步！');
                 } else {
-                    showToast('⚠️ 保存失败，请检查 Token 与网络');
+                    const idx = memories.indexOf(memory);
+                    if (idx !== -1) memories.splice(idx, 1);
+                    renderMemories();
+                    saveCache();
+                    showToast('⚠️ 保存失败已撤销（检查 Token / 网络 / 图片大小）');
                 }
             }
 
             function handleImageUpload(file) {
                 if (!file || !file.type.startsWith('image/')) return;
+                showToast('🖼️ 正在压缩图片...');
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    compressImage(e.target.result, 800, 0.7, function(compressed) {
+                    compressImageToLimit(e.target.result, 60000, function(compressed) {
+                        if (!compressed) { showToast('⚠️ 图片太大，请换一张小一点的'); return; }
                         const preview = $('#memoryImagePreview');
                         preview.src = compressed;
                         preview.style.display = 'block';
@@ -1005,16 +1074,29 @@
                 reader.readAsDataURL(file);
             }
 
-            function compressImage(dataUrl, maxWidth, quality, callback) {
+            // 自适应压缩：不断降低尺寸/质量，直到 base64 长度 <= maxChars
+            // （GitHub Issue 正文上限约 65536 字符，图片以 base64 存在正文里，过大就会 422）
+            function compressImageToLimit(dataUrl, maxChars, callback) {
                 const img = new Image();
                 img.onload = function() {
+                    const widths = [800, 640, 520, 440, 360, 300, 260];
+                    const qualities = [0.7, 0.6, 0.5, 0.42, 0.35];
                     const canvas = document.createElement('canvas');
-                    let w = img.width, h = img.height;
-                    if (w > maxWidth) { h = Math.round(h * (maxWidth / w)); w = maxWidth; }
-                    canvas.width = w; canvas.height = h;
-                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                    callback(canvas.toDataURL('image/jpeg', quality));
+                    const ctx = canvas.getContext('2d');
+                    for (let wi = 0; wi < widths.length; wi++) {
+                        let tw = Math.min(widths[wi], img.width);
+                        let th = Math.max(1, Math.round(img.height * (tw / img.width)));
+                        canvas.width = tw; canvas.height = th;
+                        ctx.clearRect(0, 0, tw, th);
+                        ctx.drawImage(img, 0, 0, tw, th);
+                        for (let qi = 0; qi < qualities.length; qi++) {
+                            const out = canvas.toDataURL('image/jpeg', qualities[qi]);
+                            if (out.length <= maxChars) { callback(out); return; }
+                        }
+                    }
+                    callback(null); // 实在压不下去
                 };
+                img.onerror = function() { callback(null); };
                 img.src = dataUrl;
             }
 
@@ -1032,21 +1114,29 @@
                 $('#lightbox').classList.remove('open');
             }
 
+            function getAllMenu() { return DEFAULT_MENU.concat(customMenu); }
+
             function renderMenu(cat = null) {
                 if (cat !== null) currentCat = cat;
                 const grid = $('#menuGrid');
                 if (!grid) return;
                 grid.innerHTML = '';
-                const filtered = currentCat === 'all' ? DEFAULT_MENU : DEFAULT_MENU.filter(i => i.cat === currentCat);
+                const all = getAllMenu();
+                const filtered = currentCat === 'all' ? all : all.filter(i => i.cat === currentCat);
                 filtered.forEach(item => {
                     const inCart = cart.find(c => c.id === item.id);
                     const qty = inCart ? inCart.qty : 0;
+                    const isCustom = item.custom === true;
                     const card = document.createElement('div');
                     card.className = 'menu-item';
+                    const visual = item.image
+                        ? `<img class="item-image" src="${escapeHTML(item.image)}" alt="">`
+                        : `<div class="item-emoji">${item.emoji || '🍽️'}</div>`;
                     card.innerHTML = `
-                        <div class="item-emoji">${item.emoji}</div>
-                        <div class="item-name">${item.name}</div>
-                        <div class="item-desc">${item.desc}</div>
+                        ${isCustom ? `<button class="delete-item" title="删除菜品" data-id="${item.id}">🗑️</button>` : ''}
+                        ${visual}
+                        <div class="item-name">${escapeHTML(item.name)}</div>
+                        <div class="item-desc">${escapeHTML(item.desc || '')}</div>
                         <div class="item-footer">
                             <span class="item-price">¥${item.price}</span>
                             <button class="add-btn" data-id="${item.id}">${qty > 0 ? '✓' : '+'}</button>
@@ -1057,6 +1147,16 @@
                         e.stopPropagation();
                         addToCart(item);
                     });
+                    const delBtn = card.querySelector('.delete-item');
+                    if (delBtn) {
+                        delBtn.addEventListener('click', async function(e) {
+                            e.stopPropagation();
+                            if (confirm('确定删除这个菜品？')) {
+                                await deleteMenuItem(item);
+                                showToast('菜品已删除');
+                            }
+                        });
+                    }
                     card.addEventListener('click', () => addToCart(item));
                     grid.appendChild(card);
                 });
@@ -1182,7 +1282,8 @@
             }
 
             function randomPick() {
-                const item = DEFAULT_MENU[Math.floor(Math.random() * DEFAULT_MENU.length)];
+                const all = getAllMenu();
+                const item = all[Math.floor(Math.random() * all.length)];
                 const result = $('#pickResult');
                 if (result) {
                     result.innerHTML = `💡 推荐：<span style="font-size:1.5rem;">${item.emoji}</span> <strong>${item.name}</strong> — ¥${item.price}`;
@@ -1206,12 +1307,13 @@
                 $('#memoryModalOverlay').addEventListener('click', function(e) { if (e.target === $('#memoryModalOverlay')) closeMemoryModal(); });
                 $('#orderConfirmOverlay').addEventListener('click', function(e) { if (e.target === $('#orderConfirmOverlay')) closeOrderConfirm(); });
                 $('#tokenModalOverlay').addEventListener('click', function(e) { if (e.target === $('#tokenModalOverlay')) closeTokenModal(); });
+                $('#menuItemModalOverlay').addEventListener('click', function(e) { if (e.target === $('#menuItemModalOverlay')) closeMenuItemModal(); });
                 $('#lightbox').addEventListener('click', function(e) { if (e.target === $('#lightbox') || e.target === $('#lightboxImg')) closeLightbox(); });
                 const syncStatusEl = $('#syncStatus');
                 if (syncStatusEl) { syncStatusEl.style.cursor = 'pointer'; syncStatusEl.title = '点击设置 / 更换 Token'; syncStatusEl.addEventListener('click', () => openTokenModal()); }
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
-                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal();
+                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal();
                         $('#navLinks').classList.remove('open');
                     }
                 });
@@ -1225,6 +1327,8 @@
                 });
                 const fileInput = $('#memoryImageFile');
                 if (fileInput) fileInput.addEventListener('change', function() { if (this.files[0]) handleImageUpload(this.files[0]); });
+                const miFile = $('#miImageFile');
+                if (miFile) miFile.addEventListener('change', function() { if (this.files[0]) handleMenuImageUpload(this.files[0]); });
             }
 
             // ============ Token 设置弹窗 ============
@@ -1248,6 +1352,7 @@
                 setSyncStatus('syncing');
                 await loadCloudData();
                 renderMemories();
+                renderMenu(currentCat);
                 updateDaysCounter();
                 if (GITHUB_TOKEN) showToast('🔑 Token 已保存，开始同步');
             }
@@ -1257,6 +1362,110 @@
                 closeTokenModal();
                 setSyncStatus('no-token');
                 showToast('Token 已清除');
+            }
+
+            // ============ 本地缓存（让页面秒开） ============
+            const CACHE_KEY = 'sweet_home_cache_v1';
+            function saveCache() {
+                try { localStorage.setItem(CACHE_KEY, JSON.stringify({ memories, customMenu, anniversaryDate })); } catch (e) {}
+            }
+            function loadCache() {
+                try {
+                    const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+                    if (c) {
+                        if (Array.isArray(c.memories)) memories = c.memories;
+                        if (Array.isArray(c.customMenu)) customMenu = c.customMenu;
+                        if (c.anniversaryDate) anniversaryDate = c.anniversaryDate;
+                    }
+                } catch (e) {}
+            }
+
+            // ============ 自定义菜品弹窗 ============
+            function handleMenuImageUpload(file) {
+                if (!file || !file.type.startsWith('image/')) return;
+                showToast('🖼️ 正在压缩图片...');
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    compressImageToLimit(e.target.result, 60000, function(compressed) {
+                        if (!compressed) { showToast('⚠️ 图片太大，请换一张小一点的'); return; }
+                        const preview = $('#miImagePreview');
+                        preview.src = compressed;
+                        preview.style.display = 'block';
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+            function openMenuItemModal() {
+                $('#miName').value = '';
+                $('#miPrice').value = '';
+                $('#miDesc').value = '';
+                $('#miCat').value = '主食';
+                $('#miEmoji').value = '';
+                $('#miImageUrl').value = '';
+                $('#miImageFile').value = '';
+                const p = $('#miImagePreview'); if (p) { p.src = ''; p.style.display = 'none'; }
+                $('#menuItemModalOverlay').classList.add('open');
+            }
+            function closeMenuItemModal() { $('#menuItemModalOverlay').classList.remove('open'); }
+            async function saveMenuItem() {
+                const name = $('#miName').value.trim();
+                const price = parseFloat($('#miPrice').value);
+                const desc = $('#miDesc').value.trim();
+                const cat = $('#miCat').value;
+                const emoji = $('#miEmoji').value.trim() || '🍽️';
+                const imageUrl = $('#miImageUrl').value.trim();
+                const preview = $('#miImagePreview');
+                let finalImage = imageUrl;
+                if (preview.style.display !== 'none' && preview.src.startsWith('data:')) finalImage = preview.src;
+                if (!name) { showToast('⚠️ 请填写名称'); return; }
+                if (isNaN(price) || price < 0) { showToast('⚠️ 请填写正确价格'); return; }
+                const item = {
+                    id: 'c' + Date.now().toString(36),
+                    custom: true,
+                    name, price, desc, cat, emoji,
+                    image: finalImage || null,
+                    createdAt: new Date().toISOString()
+                };
+                // 乐观更新
+                isSyncing = true;
+                customMenu.push(item);
+                renderMenu(currentCat);
+                saveCache();
+                closeMenuItemModal();
+                setSyncStatus('syncing');
+                const ok = await createIssue('menu', item);
+                isSyncing = false;
+                if (ok) {
+                    setSyncStatus('synced');
+                    saveCache();
+                    showToast('🍽️ 新菜品已保存并同步！');
+                } else {
+                    const idx = customMenu.indexOf(item);
+                    if (idx !== -1) customMenu.splice(idx, 1);
+                    renderMenu(currentCat);
+                    saveCache();
+                    showToast('⚠️ 保存失败已撤销（检查 Token / 网络 / 图片大小）');
+                }
+            }
+            async function deleteMenuItem(item) {
+                const idx = customMenu.findIndex(m => m.id === item.id);
+                if (idx === -1) return;
+                customMenu.splice(idx, 1);
+                renderMenu(currentCat);
+                saveCache();
+                try {
+                    if (item.__num) {
+                        await closeIssue(item.__num);
+                    } else {
+                        const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('menu')}&state=open&per_page=100`);
+                        for (const iss of issues) {
+                            try {
+                                const data = JSON.parse(iss.body);
+                                if (data.id === item.id || data.createdAt === item.createdAt) { await closeIssue(iss.number); break; }
+                            } catch(e) {}
+                        }
+                    }
+                } catch(e) { console.warn('删除菜品失败:', e); }
             }
 
             // ============ 暴露全局 ============
@@ -1279,6 +1488,9 @@
             window.closeTokenModal = closeTokenModal;
             window.saveToken = saveToken;
             window.clearToken = clearToken;
+            window.openMenuItemModal = openMenuItemModal;
+            window.closeMenuItemModal = closeMenuItemModal;
+            window.saveMenuItem = saveMenuItem;
 
             init();
             console.log('💕 甜蜜小窝 - GitHub同步版已就绪！');
