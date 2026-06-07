@@ -1201,8 +1201,12 @@
             // ============ 购物车云同步 ============
             // 思路：整个共享购物车存在“同一条”Issue 的正文里（JSON）。
             // 任一方改动购物车 → 覆盖写入这条 Issue；轮询时读回 → 双方实时看到同一个车。
+            // 只取“真正在车里”的条目（排除已删除墓碑 / 数量为0）
+            function visibleCart() { return cart.filter(c => !c.del && c.qty > 0); }
+
             function cartSignature(arr) {
-                return (arr || []).map(c => `${c.id}:${c.qty}`).sort().join('|');
+                // 仅用可见条目计算签名（墓碑不计入“显示状态”）
+                return (arr || []).filter(c => !c.del && c.qty > 0).map(c => `${c.id}:${c.qty}`).sort().join('|');
             }
 
             // 本地购物车"有未同步改动"的保护：
@@ -1215,11 +1219,11 @@
             function markCartDirty() { cartDirty = true; cartLocalEditTs = Date.now(); }
             function cartProtected() { return cartDirty || _cartPushPending || (Date.now() - cartLocalEditTs < CART_PROTECT_MS); }
 
-            // 把本地购物车推送到云端（覆盖式更新那条共享 Issue）
+            // 把本地购物车推送到云端（带每项时间戳，支持按项合并）
             async function pushCartToCloud() {
                 if (!GITHUB_TOKEN) return false;
                 const payload = {
-                    items: cart.map(c => ({ id:c.id, name:c.name, price:c.price, emoji:c.emoji, qty:c.qty })),
+                    items: cart.map(c => ({ id:c.id, name:c.name, price:c.price, emoji:c.emoji, qty:c.qty, ts:c.ts||0, del:!!c.del })),
                     updatedAt: new Date().toISOString(),
                     updatedBy: getDeviceName()
                 };
@@ -1279,27 +1283,42 @@
                     }
                     if (latestNum) cartIssueNum = latestNum;
                     if (!latest || !Array.isArray(latest.items)) return;
-                    const remoteSig = cartSignature(latest.items);
-                    const localSig = cartSignature(cart);
-                    // 远端与本地一致 → 无需处理
-                    if (remoteSig === localSig) { lastCartSig = remoteSig; cartDirty = false; return; }
-                    // 关键修复：本地刚改过、或还有没确认同步的改动 → 绝不用云端覆盖本地，
-                    // 否则会出现"加进购物车几秒后又消失"。等本地推送完成再说。
-                    if (cartProtected()) {
-                        // 本地有改动但云端还是旧的 → 主动把本地推上去，让云端跟上本地
-                        if (localSig !== lastCartSig) { scheduleCartPush(); }
-                        return;
-                    }
-                    // 远端有新变化（且本地无未同步改动）→ 用远端覆盖本地（对方改动同步过来）
-                    cart = latest.items.map(c => ({ id:c.id, name:c.name, price:c.price, emoji:c.emoji, qty:c.qty }));
-                    lastCartSig = remoteSig;
+
+                    // —— 按项合并：同一 id 取“时间戳更新”的一方；删除墓碑也按时间戳生效 ——
+                    // 这样“本地刚加的”一定比云端旧值新 → 永远不会被覆盖消失；
+                    // 同时对方的改动（更新的 ts）也能正确合并进来。
+                    const byId = {};
+                    // 先放本地
+                    cart.forEach(c => { byId[c.id] = { ...c, ts: c.ts||0, del: !!c.del }; });
+                    // 再用云端按时间戳合并
+                    latest.items.forEach(r => {
+                        const rts = r.ts || 0;
+                        const cur = byId[r.id];
+                        if (!cur || rts > (cur.ts||0)) {
+                            byId[r.id] = { id:r.id, name:r.name, price:r.price, emoji:r.emoji, qty:r.qty, ts:rts, del:!!r.del };
+                        }
+                    });
+                    const merged = Object.values(byId);
+                    const mergedVisibleSig = cartSignature(merged);
+                    const localVisibleSig = cartSignature(cart);
+
+                    // 合并结果与当前本地“可见状态”一致 → 只需静默保存合并后的元数据
+                    cart = merged;
                     saveCartLocally();
-                    updateCartUI();
-                    renderCartItems();
-                    renderMenu(currentCat);
-                    // 温和提示对方更新了购物车（仅当不是自己刚操作时）
-                    if (latest.updatedBy && latest.updatedBy !== getDeviceName()) {
-                        showToast(`🛒 ${latest.updatedBy} 更新了购物车`);
+                    if (mergedVisibleSig !== localVisibleSig) {
+                        updateCartUI();
+                        renderCartItems();
+                        renderMenu(currentCat);
+                        if (latest.updatedBy && latest.updatedBy !== getDeviceName()) {
+                            showToast(`🛒 ${latest.updatedBy} 更新了购物车`);
+                        }
+                    }
+                    // 若本地比云端新（本地有更晚的改动），把合并结果推回云端让对方也拿到
+                    const remoteVisibleSig = cartSignature(latest.items);
+                    if (mergedVisibleSig !== remoteVisibleSig) {
+                        scheduleCartPush();
+                    } else {
+                        cartDirty = false;
                     }
                 } catch (err) {
                     // 拉取购物车失败不强制弹窗，静默处理
@@ -1959,7 +1978,7 @@
                     return;
                 }
                 list.forEach(item => {
-                    const inCart = cart.find(c => c.id === item.id);
+                    const inCart = cart.find(c => c.id === item.id && !c.del && c.qty > 0);
                     const qty = inCart ? inCart.qty : 0;
                     const card = document.createElement('div');
                     card.className = 'menu-item';
@@ -2085,7 +2104,7 @@
                 const sidesHtml = sides.length
                     ? `<div class="ingredient-chips">${sides.map(s => `<span class="ingredient-chip">${escapeHTML(s)}</span>`).join('')}</div>`
                     : `<p style="font-size:0.85rem;color:var(--text-light);">暂未登记主要配菜</p>`;
-                const inCart = cart.find(x => x.id === item.id);
+                const inCart = cart.find(x => x.id === item.id && !x.del && x.qty > 0);
                 const qty = inCart ? inCart.qty : 0;
 
                 c.innerHTML = `
@@ -2124,9 +2143,15 @@
             function backFromDetail() { switchPage(detailReturnPage || 'order'); }
 
             function addToCart(item) {
-                const existing = cart.find(c => c.id === item.id);
-                if (existing) { existing.qty += 1; }
-                else { cart.push({ id:item.id, name:item.name, price:item.price, emoji:item.emoji, qty:1 }); }
+                const existing = cart.find(c => c.id === item.id && !c.del && c.qty > 0);
+                const now = Date.now();
+                if (existing) { existing.qty += 1; existing.ts = now; existing.del = false; }
+                else {
+                    // 可能存在一个该 id 的墓碑，复用它（复活）而不是新增重复项
+                    const tomb = cart.find(c => c.id === item.id);
+                    if (tomb) { tomb.qty = 1; tomb.del = false; tomb.ts = now; tomb.name = item.name; tomb.price = item.price; tomb.emoji = item.emoji; }
+                    else { cart.push({ id:item.id, name:item.name, price:item.price, emoji:item.emoji, qty:1, ts:now, del:false }); }
+                }
                 saveCartLocally();
                 updateCartUI();
                 renderMenu(currentCat);
@@ -2143,7 +2168,10 @@
             function loadCartLocally() {
                 try {
                     const c = JSON.parse(localStorage.getItem('sweet_home_cart') || 'null');
-                    if (Array.isArray(c)) cart = c;
+                    if (Array.isArray(c)) {
+                        // 兼容旧数据：补上 ts/del 字段
+                        cart = c.map(x => ({ id:x.id, name:x.name, price:x.price, emoji:x.emoji, qty:x.qty||0, ts:x.ts||1, del: x.del===true || (x.qty||0) <= 0 }));
+                    }
                 } catch(e) {}
             }
 
@@ -2187,7 +2215,7 @@
             }
 
             function updateCartUI() {
-                const totalQty = cart.reduce((s,c) => s + c.qty, 0);
+                const totalQty = visibleCart().reduce((s,c) => s + c.qty, 0);
                 const badge = $('#cartCountBadge');
                 if (badge) {
                     if (totalQty > 0) { badge.style.display = 'flex'; badge.textContent = totalQty; }
@@ -2215,21 +2243,23 @@
                 const container = $('#cartItems');
                 const totalEl = $('#cartTotal');
                 if (!container) return;
-                if (cart.length === 0) {
+                const items = visibleCart();
+                if (items.length === 0) {
                     container.innerHTML = '<div class="empty-state"><div class="icon">🛒</div><p>购物车空空如也~</p></div>';
                     totalEl.textContent = '合计：¥0.00';
                     return;
                 }
                 let total = 0;
-                container.innerHTML = cart.map((item, i) => {
+                container.innerHTML = items.map((item, i) => {
                     const subtotal = item.price * item.qty;
                     total += subtotal;
+                    const priceShown = (item.price && item.price > 0) ? `¥${item.price} × ${item.qty} = ¥${subtotal}` : `自制 × ${item.qty}`;
                     return `
                         <div class="cart-item-row">
                             <span class="cart-item-emoji">${item.emoji}</span>
                             <div class="cart-item-info">
                                 <div class="cart-item-name">${item.name}</div>
-                                <div class="cart-item-price">¥${item.price} × ${item.qty} = ¥${subtotal}</div>
+                                <div class="cart-item-price">${priceShown}</div>
                             </div>
                             <div class="qty-control">
                                 <button class="qty-btn" onclick="changeQty(${i},-1)">−</button>
@@ -2243,9 +2273,16 @@
             }
 
             function changeQty(index, delta) {
-                if (index < 0 || index >= cart.length) return;
-                cart[index].qty += delta;
-                if (cart[index].qty <= 0) cart.splice(index, 1);
+                // index 是“可见购物车项”的下标，转成对应的真实条目
+                const visible = cart.filter(c => !c.del && c.qty > 0);
+                const target = visible[index];
+                if (!target) return;
+                const real = cart.find(c => c.id === target.id);
+                if (!real) return;
+                const now = Date.now();
+                real.qty += delta;
+                real.ts = now;
+                if (real.qty <= 0) { real.qty = 0; real.del = true; } // 墓碑：标记删除而非直接移除，便于同步给对方
                 saveCartLocally();
                 updateCartUI();
                 renderCartItems();
@@ -2254,24 +2291,28 @@
             }
 
             function clearCart() {
-                if (cart.length === 0) return;
+                const hasItems = cart.some(c => !c.del && c.qty > 0);
+                if (!hasItems) return;
                 if (confirm('确定清空购物车？（对方的购物车也会一起清空哦）')) {
-                    cart = [];
+                    const now = Date.now();
+                    // 全部打上删除墓碑（带时间戳），这样对方那边也会同步清空
+                    cart.forEach(c => { c.qty = 0; c.del = true; c.ts = now; });
                     saveCartLocally();
                     updateCartUI();
                     renderCartItems();
                     renderMenu(currentCat);
                     showToast('购物车已清空');
-                    clearCartInCloud();
+                    scheduleCartPush();
                 }
             }
 
             function submitOrder() {
-                if (cart.length === 0) { showToast('⚠️ 购物车为空'); return; }
-                const total = cart.reduce((s,c) => s + c.price * c.qty, 0);
+                const items = visibleCart();
+                if (items.length === 0) { showToast('⚠️ 购物车为空'); return; }
+                const total = items.reduce((s,c) => s + c.price * c.qty, 0);
                 const summary = $('#orderSummary');
-                summary.innerHTML = cart.map(c => 
-                    `<div>${c.emoji} ${c.name} × ${c.qty} = ¥${(c.price * c.qty).toFixed(2)}</div>`
+                summary.innerHTML = items.map(c =>
+                    `<div>${c.emoji} ${c.name} × ${c.qty}${(c.price&&c.price>0)?` = ¥${(c.price * c.qty).toFixed(2)}`:'（自制）'}</div>`
                 ).join('') + `<div style="font-weight:700;margin-top:8px;">总计：¥${total.toFixed(2)}</div>`;
                 $('#orderConfirmOverlay').classList.add('open');
             }
@@ -2279,9 +2320,10 @@
             function closeOrderConfirm() { $('#orderConfirmOverlay').classList.remove('open'); }
 
             async function confirmOrder() {
+                const items = visibleCart();
                 const order = {
-                    items: [...cart],
-                    total: cart.reduce((s,c) => s + c.price * c.qty, 0),
+                    items: items.map(c => ({ id:c.id, name:c.name, price:c.price, emoji:c.emoji, qty:c.qty })),
+                    total: items.reduce((s,c) => s + c.price * c.qty, 0),
                     time: new Date().toISOString(),
                     orderId: 'ORD' + Date.now().toString(36).toUpperCase(),
                     by: getDeviceName()
@@ -2292,7 +2334,9 @@
                 orders.unshift(order);
                 lastOrderSeenId = order.orderId;
                 renderOrders();
-                cart = [];
+                // 全部打删除墓碑（带时间戳），保证清空能同步给对方且不会被旧数据复活
+                const now = Date.now();
+                cart.forEach(c => { c.qty = 0; c.del = true; c.ts = now; });
                 saveCartLocally();
                 updateCartUI();
                 renderCartItems();
@@ -2300,7 +2344,7 @@
                 closeOrderConfirm();
                 closeCart();
                 showToast('🎉 下单成功！订单已记录');
-                await clearCartInCloud(); // 下单后同步清空双方购物车
+                await pushCartToCloud(); // 把清空（墓碑）同步给对方
                 // 后台拉一次，拿到带编号的权威订单列表
                 loadOrders();
             }
@@ -2483,7 +2527,8 @@
                     `支持后台程序(SW)：${yn(e.hasSW)}<br>` +
                     `独立App模式：${yn(e.standalone)}<br>` +
                     `安全连接(HTTPS)：${yn(e.isHTTPS)}<br>` +
-                    `通知权限状态：<strong>${permTxt}</strong>`;
+                    `通知权限状态：<strong>${permTxt}</strong>` +
+                    `<details style="margin-top:8px;"><summary style="cursor:pointer;color:var(--pink-dark);">浏览器标识（点开看）</summary><div style="font-size:0.7rem;color:var(--text-light);word-break:break-all;margin-top:4px;">${escapeHTML(e.ua)}</div></details>`;
 
                 let advice = '';
                 if (e.hasNotif) {
@@ -2591,10 +2636,16 @@
             function reorder(o) {
                 const items = Array.isArray(o.items) ? o.items : [];
                 if (!items.length) return;
+                const now = Date.now();
                 items.forEach(it => {
                     const existing = cart.find(c => c.id === it.id);
-                    if (existing) existing.qty += (it.qty || 1);
-                    else cart.push({ id: it.id, name: it.name, price: it.price, emoji: it.emoji, qty: it.qty || 1 });
+                    if (existing) {
+                        existing.qty = (existing.del ? 0 : existing.qty) + (it.qty || 1);
+                        existing.del = false; existing.ts = now;
+                        existing.name = it.name; existing.price = it.price; existing.emoji = it.emoji;
+                    } else {
+                        cart.push({ id: it.id, name: it.name, price: it.price, emoji: it.emoji, qty: it.qty || 1, ts: now, del: false });
+                    }
                 });
                 saveCartLocally();
                 updateCartUI();
