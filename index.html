@@ -808,6 +808,19 @@
         </div>
     </div>
 
+    <!-- 🔔 通知诊断 / 帮助弹窗 -->
+    <div class="modal-overlay" id="notifyHelpOverlay">
+        <div class="modal" id="notifyHelpModal">
+            <h3>🔔 开启手机通知</h3>
+            <div id="notifyDiag" style="font-size:0.8rem;background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:14px;line-height:1.9;"></div>
+            <div id="notifyHelpText" style="font-size:0.86rem;color:var(--text);line-height:1.7;"></div>
+            <div class="btn-row" style="margin-top:14px;">
+                <button class="btn btn-outline btn-sm" onclick="copyAppUrl()">📋 复制网址</button>
+                <button class="btn btn-primary btn-sm" onclick="closeNotifyHelp()">知道啦</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 🔑 GitHub Token 设置弹窗 -->
     <div class="modal-overlay" id="tokenModalOverlay">
         <div class="modal" id="tokenModal">
@@ -2405,6 +2418,70 @@
                     : s === 'denied' ? '通知被拒绝，请在系统设置里允许'
                     : '点此开启手机通知提醒';
             }
+
+            // 通知诊断 + 帮助
+            function detectEnv() {
+                const ua = navigator.userAgent || '';
+                const hasNotif = 'Notification' in window;
+                const hasSW = 'serviceWorker' in navigator;
+                const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+                const isHTTPS = location.protocol === 'https:';
+                const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                const isAndroid = /Android/.test(ua);
+                // 粗略识别一些自带浏览器/WebView
+                const isWebView = /; wv\)/.test(ua) || /Version\/[\d.]+.*(Chrome)/.test(ua) === false && isAndroid && /Chrome/.test(ua) === false;
+                const isQuark = /Quark/i.test(ua), isUC = /UCBrowser|UBrowser/i.test(ua), isMi = /MiuiBrowser|XiaoMi/i.test(ua), isHuawei = /HuaweiBrowser|HarmonyOS/i.test(ua), isVivo = /VivoBrowser/i.test(ua), isOppo = /HeyTapBrowser|OppoBrowser/i.test(ua), isSamsung = /SamsungBrowser/i.test(ua), isWeixin = /MicroMessenger/i.test(ua);
+                return { ua, hasNotif, hasSW, standalone, isHTTPS, isIOS, isAndroid, isWebView, isQuark, isUC, isMi, isHuawei, isVivo, isOppo, isSamsung, isWeixin };
+            }
+
+            function openNotifyHelp() {
+                const e = detectEnv();
+                const yn = (b) => b ? '<span style="color:#4ecb71;font-weight:700;">✓ 是</span>' : '<span style="color:#ff4757;font-weight:700;">✗ 否</span>';
+                const perm = notifyPermissionState();
+                const permTxt = perm === 'granted' ? '已允许' : perm === 'denied' ? '被拒绝' : perm === 'default' ? '未设置' : '不支持';
+                $('#notifyDiag').innerHTML =
+                    `支持通知接口：${yn(e.hasNotif)}<br>` +
+                    `支持后台程序(SW)：${yn(e.hasSW)}<br>` +
+                    `独立App模式：${yn(e.standalone)}<br>` +
+                    `安全连接(HTTPS)：${yn(e.isHTTPS)}<br>` +
+                    `通知权限状态：<strong>${permTxt}</strong>`;
+
+                let advice = '';
+                if (e.hasNotif) {
+                    advice = '✅ 你的浏览器其实<strong>支持通知</strong>！如果刚才没弹授权框，请再点一次右下角 🔔，或在系统「设置 → 应用 → 本应用 / 浏览器 → 通知」里手动打开。';
+                } else if (e.isWeixin) {
+                    advice = '⚠️ 你现在是在<strong>微信内置浏览器</strong>里打开的，它屏蔽了网页通知。请点右上角「···」→「在浏览器中打开」，建议用 <strong>Chrome（谷歌浏览器）</strong>，再添加到主屏幕。';
+                } else if (e.isIOS) {
+                    advice = '🍎 iPhone 要满足：① 系统 <strong>iOS 16.4 以上</strong>；② 必须用 <strong>Safari</strong> 把网页「添加到主屏幕」，再从那个图标打开（Safari 标签页里直接开收不到）。满足后再点 🔔 授权。';
+                } else if (e.isAndroid) {
+                    const name = e.isQuark ? '夸克' : e.isUC ? 'UC' : e.isMi ? '小米自带' : e.isHuawei ? '华为自带' : e.isVivo ? 'vivo自带' : e.isOppo ? 'OPPO自带' : e.isSamsung ? '三星自带' : '系统自带';
+                    advice = `📱 你用的是<strong>${name}浏览器</strong>，它的内核没有开放网页通知能力，所以一直提示不支持。<br><br>👉 <strong>解决办法：改用 Chrome（谷歌浏览器）</strong>打开本网址，再用 Chrome 菜单里的「安装应用 / 添加到主屏幕」，从新图标打开，点 🔔 就能授权了。<br><br>下方「📋 复制网址」可把链接复制后粘到 Chrome。`;
+                } else {
+                    advice = '⚠️ 当前浏览器内核未开放网页通知。建议改用 <strong>Chrome</strong> 打开本网址并安装为应用，再开启通知。';
+                }
+                if (!e.isHTTPS) {
+                    advice += '<br><br>❗ 另外检测到当前不是 HTTPS 安全连接，通知功能要求 HTTPS（GitHub Pages 默认就是 https，请确认用的是 https:// 开头的网址）。';
+                }
+                $('#notifyHelpText').innerHTML = advice;
+                $('#notifyHelpOverlay').classList.add('open');
+            }
+            function closeNotifyHelp() { $('#notifyHelpOverlay').classList.remove('open'); }
+            function copyAppUrl() {
+                const url = location.href.split('#')[0];
+                const done = () => showToast('📋 网址已复制，去 Chrome 粘贴打开');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+                } else { fallbackCopy(url, done); }
+            }
+            function fallbackCopy(text, cb) {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+                    document.body.appendChild(ta); ta.focus(); ta.select();
+                    document.execCommand('copy'); document.body.removeChild(ta);
+                    cb();
+                } catch(e) { showToast('复制失败，请手动复制地址栏网址'); }
+            }
             async function ensureNotifyPermission(askNow) {
                 if (!('Notification' in window)) return false;
                 if (Notification.permission === 'granted') return true;
@@ -2542,6 +2619,7 @@
                 $('#memoryModalOverlay').addEventListener('click', function(e) { if (e.target === $('#memoryModalOverlay')) closeMemoryModal(); });
                 $('#orderConfirmOverlay').addEventListener('click', function(e) { if (e.target === $('#orderConfirmOverlay')) closeOrderConfirm(); });
                 $('#orderNoticeOverlay').addEventListener('click', function(e) { if (e.target === $('#orderNoticeOverlay')) closeOrderNotice(); });
+                $('#notifyHelpOverlay').addEventListener('click', function(e) { if (e.target === $('#notifyHelpOverlay')) closeNotifyHelp(); });
                 $('#tokenModalOverlay').addEventListener('click', function(e) { if (e.target === $('#tokenModalOverlay')) closeTokenModal(); });
                 $('#menuItemModalOverlay').addEventListener('click', function(e) { if (e.target === $('#menuItemModalOverlay')) closeMenuItemModal(); });
                 $('#lightbox').addEventListener('click', function(e) { if (e.target === $('#lightbox') || e.target === $('#lightboxImg')) closeLightbox(); });
@@ -2554,13 +2632,9 @@
                     notifyFab.addEventListener('click', async () => {
                         const state = notifyPermissionState();
                         if (state === 'unsupported') {
-                            // 多半是：不是从主屏图标打开，或浏览器内核不支持
-                            const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-                            if (!standalone) {
-                                showToast('请先用「添加到主屏幕」的图标打开本应用，再开启通知', 4000);
-                            } else {
-                                showToast('此浏览器内核不支持网页通知，建议改用 Chrome 打开并安装', 4500);
-                            }
+                            // 'Notification' 接口不存在：当前浏览器内核不支持网页通知。
+                            // 多见于安卓系统自带浏览器/WebView。给出明确出路 + 诊断入口。
+                            openNotifyHelp();
                             return;
                         }
                         if (state === 'granted') {
@@ -2585,7 +2659,7 @@
                 }
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
-                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions(); closeOrderNotice(); closeCatTagActions(); closeRenameModal();
+                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions(); closeOrderNotice(); closeCatTagActions(); closeRenameModal(); closeNotifyHelp();
                         $('#navLinks').classList.remove('open');
                     }
                 });
@@ -3032,6 +3106,8 @@
             window.closeItemActions = closeItemActions;
             window.closeOrderNotice = closeOrderNotice;
             window.viewOrdersFromNotice = viewOrdersFromNotice;
+            window.closeNotifyHelp = closeNotifyHelp;
+            window.copyAppUrl = copyAppUrl;
             window.addCategory = addCategory;
             window.closeRenameModal = closeRenameModal;
 
