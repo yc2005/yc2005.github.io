@@ -1205,6 +1205,16 @@
                 return (arr || []).map(c => `${c.id}:${c.qty}`).sort().join('|');
             }
 
+            // 本地购物车"有未同步改动"的保护：
+            // 用户一改动就标脏，并记录时间；在改动后一段时间内（含推送+云端读写延迟），
+            // 轮询绝不能用云端数据覆盖本地，避免"加了又消失"。
+            let cartDirty = false;          // 是否有改动尚未确认同步
+            let cartLocalEditTs = 0;        // 最近一次本地改动的时间戳
+            let _cartPushPending = false;   // 是否有一次推送正在排队/进行中
+            const CART_PROTECT_MS = 12000;  // 改动后 12 秒内保护本地不被覆盖
+            function markCartDirty() { cartDirty = true; cartLocalEditTs = Date.now(); }
+            function cartProtected() { return cartDirty || _cartPushPending || (Date.now() - cartLocalEditTs < CART_PROTECT_MS); }
+
             // 把本地购物车推送到云端（覆盖式更新那条共享 Issue）
             async function pushCartToCloud() {
                 if (!GITHUB_TOKEN) return false;
@@ -1270,9 +1280,17 @@
                     if (latestNum) cartIssueNum = latestNum;
                     if (!latest || !Array.isArray(latest.items)) return;
                     const remoteSig = cartSignature(latest.items);
-                    // 远端与“本地上次同步状态”一致 → 无需打扰
-                    if (remoteSig === cartSignature(cart)) { lastCartSig = remoteSig; return; }
-                    // 远端有新变化 → 用远端覆盖本地（这是“对方提交/改动后我能看到”的关键）
+                    const localSig = cartSignature(cart);
+                    // 远端与本地一致 → 无需处理
+                    if (remoteSig === localSig) { lastCartSig = remoteSig; cartDirty = false; return; }
+                    // 关键修复：本地刚改过、或还有没确认同步的改动 → 绝不用云端覆盖本地，
+                    // 否则会出现"加进购物车几秒后又消失"。等本地推送完成再说。
+                    if (cartProtected()) {
+                        // 本地有改动但云端还是旧的 → 主动把本地推上去，让云端跟上本地
+                        if (localSig !== lastCartSig) { scheduleCartPush(); }
+                        return;
+                    }
+                    // 远端有新变化（且本地无未同步改动）→ 用远端覆盖本地（对方改动同步过来）
                     cart = latest.items.map(c => ({ id:c.id, name:c.name, price:c.price, emoji:c.emoji, qty:c.qty }));
                     lastCartSig = remoteSig;
                     saveCartLocally();
@@ -1291,6 +1309,12 @@
 
             // 清空云端共享购物车（下单或清空时调用）
             async function clearCartInCloud() {
+                // 主动清空是权威操作：取消任何待推送、清掉脏标记，让空车生效
+                clearTimeout(_cartPushTimer);
+                _cartPushPending = false;
+                cartDirty = false;
+                cartLocalEditTs = 0;
+                lastCartSig = '';
                 if (!GITHUB_TOKEN) return;
                 try {
                     if (!cartIssueNum) {
@@ -2126,14 +2150,29 @@
             // 购物车改动后推送到云端（去抖：合并 600ms 内的连续操作，减少请求）
             let _cartPushTimer = null;
             function scheduleCartPush() {
-                if (!GITHUB_TOKEN) return;
+                if (!GITHUB_TOKEN) {
+                    // 没连同步：仅本地保存，不标脏（避免一直保护）
+                    return;
+                }
+                markCartDirty();
+                _cartPushPending = true;
                 setCartSyncBadge('syncing');
                 clearTimeout(_cartPushTimer);
                 _cartPushTimer = setTimeout(async () => {
                     isSyncing = true;
+                    const sigAtPush = cartSignature(cart);
                     const ok = await pushCartToCloud();
                     isSyncing = false;
-                    setCartSyncBadge(ok ? 'synced' : 'error');
+                    _cartPushPending = false;
+                    if (ok) {
+                        // 只有当推送期间用户没再改动，才认为已干净
+                        if (cartSignature(cart) === sigAtPush) { cartDirty = false; }
+                        else { scheduleCartPush(); } // 期间又改了，再推一次
+                        setCartSyncBadge('synced');
+                    } else {
+                        setCartSyncBadge('error');
+                        // 失败保持脏，下次改动或下次打开会重试
+                    }
                 }, 600);
             }
 
