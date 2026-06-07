@@ -268,6 +268,11 @@
         }
         .cat-btn.active { background: var(--pink); color: #fff; border-color: var(--pink); font-weight: 600; }
         .cat-btn:hover { border-color: var(--pink); color: var(--pink-dark); }
+        .cat-btn.cat-add {
+            font-weight: 700; color: var(--pink); border: 2px dashed var(--pink-light);
+            min-width: 40px; padding: 9px 14px;
+        }
+        .cat-btn.cat-add:hover { border-color: var(--pink); background: var(--pink-light); }
         .tag-btn {
             padding: 7px 14px; border-radius: 20px; border: 1.5px solid var(--pink-light);
             background: var(--white); cursor: pointer; font-size: 0.8rem; font-weight: 500;
@@ -624,8 +629,11 @@
                 </div>
             </div>
             <div class="random-pick-area">
-                <p style="font-weight:600;">🎯 不知道吃什么？让我帮你选！</p>
-                <button class="btn btn-primary" onclick="randomPick()" style="margin-top:8px;">🎲 随机推荐一道菜</button>
+                <p style="font-weight:600;">🎯 不知道吃什么？先选今天在哪儿吃～</p>
+                <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px;">
+                    <button class="btn btn-primary" onclick="randomPick('home')">🏡 在家吃 · 随机一道菜</button>
+                    <button class="btn btn-outline" onclick="randomPick('restaurant')">🍴 在外面 · 随机一家店</button>
+                </div>
                 <div class="pick-result" id="pickResult"></div>
             </div>
         </section>
@@ -682,14 +690,9 @@
             <!-- 动态标签行：暖心餐显示菜系，寻味记显示餐厅 -->
             <div class="menu-categories" id="menuTagBar"></div>
 
-            <!-- 餐品大类（主食/小食/饮品/甜品） -->
-            <div class="menu-subcats" id="menuCategories">
-                <button class="cat-btn active" data-cat="all">全部</button>
-                <button class="cat-btn" data-cat="主食">🍚 主食</button>
-                <button class="cat-btn" data-cat="小食">🍟 小食</button>
-                <button class="cat-btn" data-cat="饮品">🥤 饮品</button>
-                <button class="cat-btn" data-cat="甜品">🍰 甜品</button>
-            </div>
+            <!-- 餐品大类（主食/小食/饮品/甜品，可自定义） -->
+            <div class="menu-subcats" id="menuCategories"></div>
+            <p style="font-size:0.72rem;color:var(--text-light);margin:-8px 0 14px;">💡 小提示：双击分类可改名或删除，点「＋」可新增分类</p>
             <div class="menu-grid" id="menuGrid"></div>
         </section>
 
@@ -774,6 +777,18 @@
         </div>
     </div>
 
+    <!-- 💗 对方提交新订单的提醒弹窗 -->
+    <div class="modal-overlay" id="orderNoticeOverlay">
+        <div class="modal" id="orderNoticeModal">
+            <h3>🔔 收到新订单啦</h3>
+            <div id="orderNoticeBody" style="margin-bottom:14px;"></div>
+            <div class="btn-row">
+                <button class="btn btn-outline btn-sm" onclick="closeOrderNotice()">知道啦</button>
+                <button class="btn btn-primary btn-sm" onclick="viewOrdersFromNotice()">📜 去看看</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 🔑 GitHub Token 设置弹窗 -->
     <div class="modal-overlay" id="tokenModalOverlay">
         <div class="modal" id="tokenModal">
@@ -829,15 +844,12 @@
             </div>
             <!-- 寻味记：餐厅名 -->
             <div class="form-group" id="miRestaurantGroup" style="display:none;"><label>餐厅名称</label><input type="text" id="miRestaurant" placeholder="例如：海底捞 / 楼下那家面馆"></div>
+            <!-- 价格：仅寻味记（在外面吃）需要填 -->
+            <div class="form-group" id="miPriceGroup" style="display:none;"><label>价格（¥）</label><input type="number" id="miPrice" min="0" step="1" placeholder="例如：38"></div>
             <div class="form-group"><label>简介（可选）</label><input type="text" id="miDesc" placeholder="一句话描述"></div>
             <div class="form-group"><label>主要配菜（可选，用逗号分隔）</label><input type="text" id="miSides" placeholder="例如：牛腩, 土豆, 番茄（常规调料不用填）"></div>
             <div class="form-group"><label>分类</label>
-                <select id="miCat">
-                    <option value="主食">主食</option>
-                    <option value="小食">小食</option>
-                    <option value="饮品">饮品</option>
-                    <option value="甜品">甜品</option>
-                </select>
+                <select id="miCat"></select>
             </div>
             <div class="form-group"><label>表情图标（可选，不上传图片时显示）</label><input type="text" id="miEmoji" placeholder="例如：🍛"></div>
             <div class="form-group"><label id="miImageLabel">📤 上传图片（可选，可拍照记录）</label><input type="file" id="miImageFile" accept="image/*"></div>
@@ -867,15 +879,15 @@
             // cuisine: 菜系名称（暖心餐用）；restaurant: 餐厅名称（寻味记用）
             // sides: 主要配菜（仅展示主料，常规调料不列）
             const DEFAULT_MENU = [
-                // —— 暖心餐 · 在家吃 ——
-                { id:'m1',name:'番茄肉酱意面',desc:'经典意式肉酱风味',price:38,cat:'主食',emoji:'🍝',scene:'home',cuisine:'意式',sides:['番茄','牛肉末','洋葱'] },
-                { id:'m4',name:'照烧鸡腿饭',desc:'日式照烧，鲜嫩多汁',price:42,cat:'主食',emoji:'🍱',scene:'home',cuisine:'日式',sides:['鸡腿肉','西兰花','溏心蛋'] },
-                { id:'m6',name:'韩式石锅拌饭',desc:'锅巴焦香，酱料十足',price:40,cat:'主食',emoji:'🥘',scene:'home',cuisine:'韩式',sides:['牛肉','胡萝卜','菠菜','煎蛋'] },
+                // —— 暖心餐 · 在家吃（自制，不计价） ——
+                { id:'m1',name:'番茄肉酱意面',desc:'经典意式肉酱风味',price:0,cat:'主食',emoji:'🍝',scene:'home',cuisine:'意式',sides:['番茄','牛肉末','洋葱'] },
+                { id:'m4',name:'照烧鸡腿饭',desc:'日式照烧，鲜嫩多汁',price:0,cat:'主食',emoji:'🍱',scene:'home',cuisine:'日式',sides:['鸡腿肉','西兰花','溏心蛋'] },
+                { id:'m6',name:'韩式石锅拌饭',desc:'锅巴焦香，酱料十足',price:0,cat:'主食',emoji:'🥘',scene:'home',cuisine:'韩式',sides:['牛肉','胡萝卜','菠菜','煎蛋'] },
                 { id:'h1',name:'番茄土豆牛腩',desc:'软烂入味，汤汁拌饭一绝',price:0,cat:'主食',emoji:'🍲',scene:'home',cuisine:'家常菜',sides:['牛腩','土豆','番茄'] },
                 { id:'h2',name:'葱花鸡蛋羹',desc:'嫩滑如布丁',price:0,cat:'小食',emoji:'🥚',scene:'home',cuisine:'家常菜',sides:['鸡蛋','葱花'] },
-                { id:'m9',name:'凯撒沙拉',desc:'新鲜蔬菜',price:22,cat:'小食',emoji:'🥗',scene:'home',cuisine:'西式',sides:['罗马生菜','培根','面包丁'] },
-                { id:'m14',name:'抹茶拿铁',desc:'日式抹茶',price:22,cat:'饮品',emoji:'🍵',scene:'home',cuisine:'日式',sides:[] },
-                { id:'m15',name:'提拉米苏',desc:'经典意式',price:30,cat:'甜品',emoji:'🍰',scene:'home',cuisine:'意式',sides:[] },
+                { id:'m9',name:'凯撒沙拉',desc:'新鲜蔬菜',price:0,cat:'小食',emoji:'🥗',scene:'home',cuisine:'西式',sides:['罗马生菜','培根','面包丁'] },
+                { id:'m14',name:'抹茶拿铁',desc:'日式抹茶',price:0,cat:'饮品',emoji:'🍵',scene:'home',cuisine:'日式',sides:[] },
+                { id:'m15',name:'提拉米苏',desc:'经典意式',price:0,cat:'甜品',emoji:'🍰',scene:'home',cuisine:'意式',sides:[] },
 
                 // —— 寻味记 · 餐厅吃 ——
                 { id:'m1r',name:'意式经典披萨',desc:'芝士浓郁，饼底酥脆',price:68,cat:'主食',emoji:'🍕',scene:'restaurant',restaurant:'萨莉亚',sides:['马苏里拉芝士','番茄','罗勒'] },
@@ -910,6 +922,15 @@
             let menuSearch = '';         // 菜单搜索关键词
             let detailReturnPage = 'order'; // 详情页返回目标
             let orders = [];             // 订单记录（双方共享）
+            let lastOrderSeenId = '';    // 已提示过的最新订单 id（避免重复弹窗）
+            // 餐品大类（可自定义，双方同步）。结构: {id, label, emoji}
+            const DEFAULT_CATEGORIES = [
+                { id: '主食', label: '主食', emoji: '🍚' },
+                { id: '小食', label: '小食', emoji: '🍟' },
+                { id: '饮品', label: '饮品', emoji: '🥤' },
+                { id: '甜品', label: '甜品', emoji: '🍰' }
+            ];
+            let categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
 
             // ============ DOM ============
             const $ = (sel) => document.querySelector(sel);
@@ -959,7 +980,8 @@
                     anniversary: 'sweet-anniversary',
                     cart: 'sweet-cart',
                     order: 'sweet-order',
-                    menu: 'sweet-menu'
+                    menu: 'sweet-menu',
+                    category: 'sweet-category'
                 };
                 return labels[type] || 'sweet-data';
             }
@@ -1242,6 +1264,112 @@
                 return n;
             }
 
+            // ============ 餐品大类（可自定义，双方同步） ============
+            let catIssueNum = null;
+            // 渲染大类标签（含「全部」与一个「＋」添加按钮）
+            function renderCategories() {
+                const bar = $('#menuCategories');
+                if (!bar) return;
+                let html = `<button class="cat-btn ${currentCat==='all'?'active':''}" data-cat="all">全部</button>`;
+                html += categories.map(c =>
+                    `<button class="cat-btn ${currentCat===c.id?'active':''}" data-cat="${escapeAttr(c.id)}" title="双击可改名/删除">${c.emoji||''} ${escapeHTML(c.label)}</button>`
+                ).join('');
+                html += `<button class="cat-btn cat-add" data-cat="__add" title="新增分类">＋</button>`;
+                bar.innerHTML = html;
+            }
+
+            async function loadCategoriesFromCloud() {
+                if (!GITHUB_TOKEN) return;
+                try {
+                    const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('category')}&state=open&per_page=100`);
+                    if (!Array.isArray(issues) || !issues.length) return;
+                    // 取最新一条
+                    let latest = null, latestNum = null;
+                    for (const iss of issues) {
+                        try {
+                            const d = JSON.parse(iss.body);
+                            if (!latest || new Date(d.updatedAt||0) > new Date(latest.updatedAt||0)) { latest = d; latestNum = iss.number; }
+                        } catch(e) {}
+                    }
+                    if (latestNum) catIssueNum = latestNum;
+                    if (latest && Array.isArray(latest.categories) && latest.categories.length) {
+                        categories = latest.categories;
+                        saveCache();
+                    }
+                } catch (err) { console.warn('加载分类失败:', err); }
+            }
+
+            async function saveCategoriesToCloud() {
+                if (!GITHUB_TOKEN) { showToast('⚠️ 未连接同步，分类暂存本地'); saveCache(); return false; }
+                const body = JSON.stringify({ categories, updatedAt: new Date().toISOString(), updatedBy: getDeviceName() });
+                try {
+                    if (!catIssueNum) {
+                        const existing = await githubAPI(`${API_BASE}?labels=${issueLabel('category')}&state=open&per_page=100`);
+                        if (existing && existing.length) {
+                            catIssueNum = existing[0].number;
+                            for (let i = 1; i < existing.length; i++) { try { await closeIssue(existing[i].number); } catch(e){} }
+                        }
+                    }
+                    if (catIssueNum) {
+                        await githubAPI(`${API_BASE}/${catIssueNum}`, { method: 'PATCH', body: JSON.stringify({ body }) });
+                    } else {
+                        const created = await githubAPI(API_BASE, {
+                            method: 'POST',
+                            body: JSON.stringify({ title: '[category] 餐品分类', body, labels: [issueLabel('category')] })
+                        });
+                        if (created && created.number) catIssueNum = created.number;
+                    }
+                    saveCache();
+                    return true;
+                } catch (err) { handleSyncError(err); return false; }
+            }
+
+            // 双击分类 → 改名 / 删除
+            async function editCategory(catId) {
+                const idx = categories.findIndex(c => c.id === catId);
+                if (idx === -1) return;
+                const cur = categories[idx];
+                const input = prompt(`修改分类名称（留空则删除该分类）\n当前：${cur.label}`, cur.label);
+                if (input === null) return; // 取消
+                const val = input.trim();
+                if (!val) {
+                    // 删除分类
+                    if (!confirm(`确定删除分类「${cur.label}」？\n该分类下的菜品不会被删除，但会失去分类标记。`)) return;
+                    categories.splice(idx, 1);
+                    if (currentCat === catId) currentCat = 'all';
+                } else {
+                    // 可选：让用户顺便改个 emoji
+                    const emoji = prompt('分类图标（可留空）', cur.emoji || '');
+                    categories[idx] = { ...cur, label: val, emoji: (emoji||'').trim() };
+                }
+                renderCategories();
+                renderMenu(currentCat);
+                const ok = await saveCategoriesToCloud();
+                showToast(ok ? '✅ 分类已更新并同步' : '✅ 分类已更新（本地）');
+            }
+
+            async function addCategory() {
+                const name = prompt('新分类名称（例如：汤羹 / 夜宵）', '');
+                if (name === null) return;
+                const val = name.trim();
+                if (!val) return;
+                if (categories.find(c => c.id === val || c.label === val)) { showToast('⚠️ 已有同名分类'); return; }
+                const emoji = prompt('分类图标（可留空）', '🍽️');
+                categories.push({ id: val, label: val, emoji: (emoji||'').trim() });
+                renderCategories();
+                renderMenu(currentCat);
+                const ok = await saveCategoriesToCloud();
+                showToast(ok ? '✅ 已新增分类并同步' : '✅ 已新增分类（本地）');
+            }
+
+            // 填充弹窗里的分类下拉
+            function fillCategorySelect(selectedVal) {
+                const sel = $('#miCat');
+                if (!sel) return;
+                sel.innerHTML = categories.map(c => `<option value="${escapeAttr(c.id)}">${c.emoji||''} ${escapeHTML(c.label)}</option>`).join('');
+                if (selectedVal && categories.find(c => c.id === selectedVal)) sel.value = selectedVal;
+            }
+
             // ============ 初始化 ============
             async function init() {
                 createHearts();
@@ -1256,20 +1384,25 @@
                 switchPage('home');
                 // 再拉取云端最新数据并刷新
                 await loadCloudData();
+                await loadCategoriesFromCloud();
                 await pullCartFromCloud();
                 await loadOrders();
+                // 记录初始最新订单，避免一进来就弹历史订单
+                if (orders.length) lastOrderSeenId = orders[0].orderId || '';
                 renderMemories();
                 renderMenu(currentCat);
                 updateDaysCounter();
-                // 定期同步（购物车更勤快：每 8 秒；其余每 30 秒）
+                // 定期同步（购物车 + 新订单提醒更勤快：每 8 秒；其余每 30 秒）
                 setInterval(async () => {
                     if (GITHUB_TOKEN && !isSyncing) {
                         await pullCartFromCloud();
+                        await checkNewOrders();
                     }
                 }, 8000);
                 setInterval(async () => {
                     if (!isSyncing && GITHUB_TOKEN) {
                         await loadCloudData();
+                        await loadCategoriesFromCloud();
                         await loadOrders();
                         renderMemories();
                         renderMenu(currentCat);
@@ -1565,6 +1698,7 @@
 
             function renderMenu(cat = null) {
                 if (cat !== null) currentCat = cat;
+                renderCategories();
                 renderTagBar();
                 const grid = $('#menuGrid');
                 if (!grid) return;
@@ -1877,8 +2011,9 @@
                 };
                 const ok = await createIssue('order', order);
                 if (!ok) { showToast('⚠️ 下单失败，请检查 Token 与网络'); return; }
-                // 本地立即加入订单记录（乐观更新）
+                // 本地立即加入订单记录（乐观更新），并把基线设为自己这单，避免自我弹窗
                 orders.unshift(order);
+                lastOrderSeenId = order.orderId;
                 renderOrders();
                 cart = [];
                 saveCartLocally();
@@ -1946,12 +2081,84 @@
                         </div>
                         ${lines}
                         <div class="order-total">${totalStr}</div>
-                        <button class="btn btn-outline btn-sm order-reorder">🔁 再来一单</button>
+                        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                            <button class="btn btn-outline btn-sm order-reorder" style="flex:1;">🔁 再来一单</button>
+                            <button class="btn btn-danger btn-sm order-del">🗑️ 删除</button>
+                        </div>
                     `;
                     card.querySelector('.order-reorder').addEventListener('click', () => reorder(o));
+                    card.querySelector('.order-del').addEventListener('click', () => deleteOrder(o));
                     wrap.appendChild(card);
                 });
             }
+
+            // 删除订单记录（同步关闭对应 Issue，双方都不再看到）
+            async function deleteOrder(o) {
+                if (!confirm(`确定删除这条订单记录？\n${o.orderId || ''}\n（删除会同步到对方那边）`)) return;
+                // 乐观移除
+                const idx = orders.indexOf(o);
+                if (idx !== -1) orders.splice(idx, 1);
+                renderOrders();
+                try {
+                    let num = o.__num;
+                    if (!num) {
+                        // 兜底：按 orderId 找到对应 Issue
+                        const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
+                        for (const iss of issues) {
+                            try { const d = JSON.parse(iss.body); if (d.orderId === o.orderId) { num = iss.number; break; } } catch(e) {}
+                        }
+                    }
+                    if (num) await closeIssue(num);
+                    showToast('🗑️ 订单已删除');
+                } catch (err) {
+                    console.warn('删除订单失败:', err);
+                    showToast('⚠️ 删除失败，请重试');
+                    // 失败则重新拉取，保证一致
+                    loadOrders();
+                }
+            }
+
+            // 检查是否有对方提交的新订单 → 弹窗提醒
+            async function checkNewOrders() {
+                if (!GITHUB_TOKEN) return;
+                try {
+                    const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
+                    if (!Array.isArray(issues) || !issues.length) return;
+                    const list = issues.map(iss => {
+                        try { const d = JSON.parse(iss.body); d.__num = iss.number; return d; } catch(e) { return null; }
+                    }).filter(Boolean).sort((a,b) => new Date(b.time||0) - new Date(a.time||0));
+                    if (!list.length) return;
+                    const newest = list[0];
+                    // 首次记录基线
+                    if (!lastOrderSeenId) { lastOrderSeenId = newest.orderId || ''; orders = list; renderOrders(); return; }
+                    if ((newest.orderId || '') !== lastOrderSeenId) {
+                        lastOrderSeenId = newest.orderId || '';
+                        orders = list;
+                        renderOrders();
+                        // 只在「对方」提交时弹窗（自己提交已有 toast）
+                        if (newest.by && newest.by !== getDeviceName()) {
+                            showOrderNotice(newest);
+                        }
+                    }
+                } catch (err) { /* 静默 */ }
+            }
+
+            // 新订单提醒弹窗
+            function showOrderNotice(o) {
+                const items = Array.isArray(o.items) ? o.items : [];
+                const preview = items.slice(0, 4).map(it => `${it.emoji||'🍽️'} ${escapeHTML(it.name||'')}×${it.qty||1}`).join('、');
+                const more = items.length > 4 ? ` 等${items.length}项` : '';
+                const totalStr = (o.total && o.total > 0) ? `合计 ¥${Number(o.total).toFixed(2)}` : `共 ${items.reduce((s,i)=>s+(i.qty||1),0)} 份`;
+                $('#orderNoticeBody').innerHTML = `
+                    <p style="font-weight:700;color:var(--pink-dark);margin-bottom:6px;">💗 ${escapeHTML(o.by||'对方')} 刚提交了一个订单！</p>
+                    <p style="font-size:0.9rem;color:var(--text);line-height:1.6;">${preview}${more}</p>
+                    <p style="font-size:0.95rem;font-weight:700;color:#e0555f;margin-top:8px;">${totalStr}</p>
+                `;
+                $('#orderNoticeOverlay').classList.add('open');
+                if (navigator.vibrate) { try { navigator.vibrate([20,40,20]); } catch(e){} }
+            }
+            function closeOrderNotice() { $('#orderNoticeOverlay').classList.remove('open'); }
+            function viewOrdersFromNotice() { closeOrderNotice(); switchPage('orders'); }
 
             // 把某条历史订单的菜品重新加入购物车
             function reorder(o) {
@@ -1970,17 +2177,45 @@
                 openCart();
             }
 
-            function randomPick() {
-                const all = getAllMenu();
-                const item = all[Math.floor(Math.random() * all.length)];
+            // scene 省略时跟随当前点餐场景
+            function randomPick(scene) {
+                scene = scene || currentScene || 'home';
                 const result = $('#pickResult');
-                if (result) {
-                    result.innerHTML = `💡 推荐：<span style="font-size:1.5rem;">${item.emoji}</span> <strong>${item.name}</strong> — ¥${item.price}`;
-                    result.style.animation = 'none';
-                    void result.offsetWidth;
-                    result.style.animation = 'popIn 0.5s ease';
+                const pool = getAllMenu().filter(i => (i.scene || 'home') === scene);
+                if (!pool.length) {
+                    if (result) result.innerHTML = scene === 'home' ? '暖心餐里还没有菜，先去添加吧～' : '寻味记里还没有餐厅，先去添加吧～';
+                    return;
                 }
-                showToast(`🎲 ${item.name}！`);
+                if (scene === 'home') {
+                    // 在家：随机推荐一道菜
+                    const item = pool[Math.floor(Math.random() * pool.length)];
+                    if (result) {
+                        result.innerHTML = `🏡 在家就做：<span style="font-size:1.5rem;">${item.emoji||'🍽️'}</span> <strong>${escapeHTML(item.name)}</strong>${item.cuisine?`（${escapeHTML(item.cuisine)}）`:''}`;
+                        animatePick(result);
+                    }
+                    showToast(`🎲 ${item.name}！`);
+                } else {
+                    // 在外面：先随机一家餐厅，再顺带推荐这家的一道招牌
+                    const restaurants = [...new Set(pool.map(i => i.restaurant).filter(Boolean))];
+                    if (!restaurants.length) {
+                        const item = pool[Math.floor(Math.random() * pool.length)];
+                        if (result) { result.innerHTML = `🍴 去吃：<strong>${escapeHTML(item.name)}</strong>`; animatePick(result); }
+                        return;
+                    }
+                    const r = restaurants[Math.floor(Math.random() * restaurants.length)];
+                    const dishes = pool.filter(i => i.restaurant === r);
+                    const pick = dishes[Math.floor(Math.random() * dishes.length)];
+                    if (result) {
+                        result.innerHTML = `🍴 今天去 <strong style="color:var(--gold);">${escapeHTML(r)}</strong>！<br><span style="font-size:0.95rem;color:var(--text-light);">招牌推荐：${pick.emoji||'🍽️'} ${escapeHTML(pick.name)}${(pick.price&&pick.price>0)?` · ¥${pick.price}`:''}</span>`;
+                        animatePick(result);
+                    }
+                    showToast(`🎲 ${r}！`);
+                }
+            }
+            function animatePick(el) {
+                el.style.animation = 'none';
+                void el.offsetWidth;
+                el.style.animation = 'popIn 0.5s ease';
             }
 
             function setupEventListeners() {
@@ -1995,6 +2230,7 @@
                 $('#cartOverlay').addEventListener('click', function(e) { if (e.target === $('#cartOverlay')) closeCart(); });
                 $('#memoryModalOverlay').addEventListener('click', function(e) { if (e.target === $('#memoryModalOverlay')) closeMemoryModal(); });
                 $('#orderConfirmOverlay').addEventListener('click', function(e) { if (e.target === $('#orderConfirmOverlay')) closeOrderConfirm(); });
+                $('#orderNoticeOverlay').addEventListener('click', function(e) { if (e.target === $('#orderNoticeOverlay')) closeOrderNotice(); });
                 $('#tokenModalOverlay').addEventListener('click', function(e) { if (e.target === $('#tokenModalOverlay')) closeTokenModal(); });
                 $('#menuItemModalOverlay').addEventListener('click', function(e) { if (e.target === $('#menuItemModalOverlay')) closeMenuItemModal(); });
                 $('#lightbox').addEventListener('click', function(e) { if (e.target === $('#lightbox') || e.target === $('#lightboxImg')) closeLightbox(); });
@@ -2002,17 +2238,26 @@
                 if (syncStatusEl) { syncStatusEl.style.cursor = 'pointer'; syncStatusEl.title = '点击设置 / 更换 Token'; syncStatusEl.addEventListener('click', () => openTokenModal()); }
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
-                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions();
+                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions(); closeOrderNotice();
                         $('#navLinks').classList.remove('open');
                     }
                 });
                 $('#menuCategories').addEventListener('click', function(e) {
-                    if (e.target.classList.contains('cat-btn')) {
-                        const cat = e.target.getAttribute('data-cat');
-                        $$('#menuCategories .cat-btn').forEach(b => b.classList.remove('active'));
-                        e.target.classList.add('active');
-                        renderMenu(cat);
-                    }
+                    const btn = e.target.closest('.cat-btn');
+                    if (!btn) return;
+                    const cat = btn.getAttribute('data-cat');
+                    if (cat === '__add') { addCategory(); return; }
+                    $$('#menuCategories .cat-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    renderMenu(cat);
+                });
+                // 双击分类 → 改名/删除（「全部」「＋」除外）
+                $('#menuCategories').addEventListener('dblclick', function(e) {
+                    const btn = e.target.closest('.cat-btn');
+                    if (!btn) return;
+                    const cat = btn.getAttribute('data-cat');
+                    if (cat === 'all' || cat === '__add') return;
+                    editCategory(cat);
                 });
                 // 场景切换：暖心餐 / 寻味记
                 $$('.scene-btn').forEach(btn => {
@@ -2104,6 +2349,10 @@
                 closeTokenModal();
                 setSyncStatus('syncing');
                 await loadCloudData();
+                await loadCategoriesFromCloud();
+                await pullCartFromCloud();
+                await loadOrders();
+                if (orders.length) lastOrderSeenId = orders[0].orderId || '';
                 renderMemories();
                 renderMenu(currentCat);
                 updateDaysCounter();
@@ -2120,7 +2369,7 @@
             // ============ 本地缓存（让页面秒开） ============
             const CACHE_KEY = 'sweet_home_cache_v1';
             function saveCache() {
-                try { localStorage.setItem(CACHE_KEY, JSON.stringify({ memories, customMenu, anniversaryDate })); } catch (e) {}
+                try { localStorage.setItem(CACHE_KEY, JSON.stringify({ memories, customMenu, anniversaryDate, categories })); } catch (e) {}
             }
             function loadCache() {
                 try {
@@ -2129,6 +2378,7 @@
                         if (Array.isArray(c.memories)) memories = c.memories;
                         if (Array.isArray(c.customMenu)) customMenu = c.customMenu;
                         if (c.anniversaryDate) anniversaryDate = c.anniversaryDate;
+                        if (Array.isArray(c.categories) && c.categories.length) categories = c.categories;
                     }
                 } catch (e) {}
             }
@@ -2162,9 +2412,10 @@
                     $('#miScene').value = editItem.scene || 'home';
                     $('#miCuisine').value = editItem.cuisine || CUISINE_OPTIONS[0];
                     $('#miRestaurant').value = editItem.restaurant || '';
+                    $('#miPrice').value = (editItem.price && editItem.price > 0) ? editItem.price : '';
                     $('#miDesc').value = editItem.desc || '';
                     $('#miSides').value = Array.isArray(editItem.sides) ? editItem.sides.join('、') : '';
-                    $('#miCat').value = editItem.cat || '主食';
+                    fillCategorySelect(editItem.cat);
                     $('#miEmoji').value = (editItem.emoji && editItem.emoji !== '🍽️') ? editItem.emoji : '';
                     const p = $('#miImagePreview');
                     if (editItem.image) { p.src = editItem.image; p.style.display = 'block'; }
@@ -2174,7 +2425,8 @@
                     $('#miName').value = '';
                     $('#miDesc').value = '';
                     $('#miSides').value = '';
-                    $('#miCat').value = '主食';
+                    $('#miPrice').value = '';
+                    fillCategorySelect(categories[0] && categories[0].id);
                     $('#miEmoji').value = '';
                     $('#miRestaurant').value = '';
                     $('#miScene').value = currentScene; // 默认跟随当前场景
@@ -2184,16 +2436,18 @@
                 updateMenuModalSceneFields();
                 $('#menuItemModalOverlay').classList.add('open');
             }
-            // 根据所选场景显示「菜系」或「餐厅」字段，并提示图片上传规则
+            // 根据所选场景显示「菜系/餐厅/价格」字段，并提示图片上传规则
             function updateMenuModalSceneFields() {
                 const scene = $('#miScene').value;
                 $('#miCuisineGroup').style.display = scene === 'home' ? 'block' : 'none';
                 $('#miRestaurantGroup').style.display = scene === 'restaurant' ? 'block' : 'none';
+                // 价格：在家吃(暖心餐)不需要；在外面吃(寻味记)需要
+                $('#miPriceGroup').style.display = scene === 'restaurant' ? 'block' : 'none';
                 const hint = $('#miImageHint');
                 const label = $('#miImageLabel');
                 if (scene === 'home') {
                     if (label) label.textContent = '📤 上传图片（可选，可拍照记录）';
-                    if (hint) hint.textContent = '🏡 暖心餐仅支持单张图片。';
+                    if (hint) hint.textContent = '🏡 暖心餐仅支持单张图片；在家吃不用填价格。';
                 } else {
                     if (label) label.textContent = '📤 上传图片（可选，可拍照记录）';
                     if (hint) hint.textContent = '🍴 寻味记暂仅支持单张图片，多图功能稍后开放。';
@@ -2220,12 +2474,17 @@
                 if (scene === 'restaurant' && !restaurant) { showToast('⚠️ 寻味记请填写餐厅名称'); return; }
 
                 const isEditing = !!editingItemId;
-                // 找到正在编辑的原菜品（用于继承价格等不在表单里的字段）
+                // 找到正在编辑的原菜品（用于继承未在表单里的字段）
                 const original = isEditing ? getAllMenu().find(m => m.id === editingItemId) : null;
                 const isPreset = original ? !!DEFAULT_MENU.find(d => d.id === editingItemId) : false;
 
-                // 价格不再在表单填写：编辑时沿用原价格，新增默认 0（自制·免费）
-                const price = original ? (original.price || 0) : 0;
+                // 价格规则：在家吃(暖心餐)恒为 0（自制·免费）；在外面吃(寻味记)读表单
+                let price = 0;
+                if (scene === 'restaurant') {
+                    const pv = parseFloat($('#miPrice').value);
+                    if (isNaN(pv) || pv < 0) { showToast('⚠️ 寻味记请填写正确价格'); return; }
+                    price = pv;
+                }
 
                 const payload = {
                     name, desc, cat, emoji, scene, sides, price,
@@ -2407,7 +2666,12 @@
             window.openDetail = openDetail;
             window.backFromDetail = backFromDetail;
             window.reorder = reorder;
+            window.deleteOrder = deleteOrder;
             window.closeItemActions = closeItemActions;
+            window.closeOrderNotice = closeOrderNotice;
+            window.viewOrdersFromNotice = viewOrdersFromNotice;
+            window.addCategory = addCategory;
+            window.editCategory = editCategory;
 
             init();
             console.log('💕 甜蜜小窝 - GitHub同步版已就绪！');
