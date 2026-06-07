@@ -1,0 +1,2013 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>💕 我们的甜蜜小窝</title>
+    <style>
+        :root {
+            --pink: #ff6b9d;
+            --pink-light: #ffe0ec;
+            --pink-dark: #e0557f;
+            --rose: #ff8fab;
+            --bg: #fff5f7;
+            --white: #ffffff;
+            --text: #4a3040;
+            --text-light: #7a6070;
+            --shadow: 0 4px 20px rgba(255, 107, 157, 0.15);
+            --shadow-lg: 0 8px 40px rgba(255, 107, 157, 0.2);
+            --radius: 18px;
+            --radius-sm: 12px;
+            --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            --nav-height: 64px;
+            --bottom-nav-height: 68px;
+            --gold: #f0a050;
+            --gold-light: #fff8f0;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+            padding-bottom: var(--bottom-nav-height);
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ============ 飘落心形 ============ */
+        .hearts-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .heart-particle {
+            position: absolute;
+            animation: fall linear infinite;
+            opacity: 0.35;
+            font-size: 18px;
+            user-select: none;
+        }
+        @keyframes fall {
+            0% {
+                transform: translateY(-10vh) rotate(0deg) scale(0.6);
+                opacity: 0;
+            }
+            5% {
+                opacity: 0.4;
+            }
+            85% {
+                opacity: 0.3;
+            }
+            100% {
+                transform: translateY(105vh) rotate(360deg) scale(1.3);
+                opacity: 0;
+            }
+        }
+
+        /* ============ 顶部导航 ============ */
+        .top-nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 107, 157, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            height: var(--nav-height);
+            box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+        }
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: var(--pink);
+            letter-spacing: -0.3px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .nav-brand .logo-icon {
+            font-size: 1.6rem;
+            animation: bounce-logo 2s ease-in-out infinite;
+        }
+        @keyframes bounce-logo {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+            30% {
+                transform: translateY(-8px);
+            }
+            50% {
+                transform: translateY(0);
+            }
+            70% {
+                transform: translateY(-4px);
+            }
+        }
+        .nav-links {
+            display: flex;
+            gap: 6px;
+            list-style: none;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .nav-links button {
+            background: transparent;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            color: var(--text-light);
+            transition: var(--transition);
+            font-weight: 500;
+            white-space: nowrap;
+            letter-spacing: 0.2px;
+        }
+        .nav-links button:hover {
+            background: var(--pink-light);
+            color: var(--pink-dark);
+        }
+        .nav-links button.active {
+            background: var(--pink);
+            color: #fff;
+            font-weight: 600;
+            box-shadow: 0 4px 14px rgba(255, 107, 157, 0.35);
+        }
+        .cart-badge {
+            position: relative;
+        }
+        .cart-count {
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            background: #ff4757;
+            color: #fff;
+            font-size: 0.7rem;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            pointer-events: none;
+            transition: transform 0.3s;
+        }
+        .cart-count.bump {
+            animation: bump 0.4s ease;
+        }
+        @keyframes bump {
+            0%,
+            100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.5);
+            }
+        }
+        .hamburger {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 1.6rem;
+            cursor: pointer;
+            padding: 8px;
+            color: var(--pink);
+            border-radius: 10px;
+            transition: var(--transition);
+        }
+        .hamburger:active {
+            background: var(--pink-light);
+        }
+
+        /* ============ 主内容区 ============ */
+        .main-content {
+            position: relative;
+            z-index: 1;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px 16px 40px;
+        }
+        .page {
+            display: none;
+            animation: fadeSlideIn 0.4s ease;
+        }
+        .page.active {
+            display: block;
+        }
+        @keyframes fadeSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(18px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ============ 首页 ============ */
+        .hero-card {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 36px 24px;
+            text-align: center;
+            box-shadow: var(--shadow);
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero-card::before {
+            content: '';
+            position: absolute;
+            top: -40px;
+            right: -40px;
+            width: 140px;
+            height: 140px;
+            background: var(--pink-light);
+            border-radius: 50%;
+            opacity: 0.5;
+        }
+        .hero-card::after {
+            content: '';
+            position: absolute;
+            bottom: -30px;
+            left: -30px;
+            width: 100px;
+            height: 100px;
+            background: #ffe8d6;
+            border-radius: 50%;
+            opacity: 0.5;
+        }
+        .hero-card>* {
+            position: relative;
+            z-index: 1;
+        }
+        .hero-avatar {
+            font-size: 5rem;
+            margin-bottom: 10px;
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-15px);
+            }
+        }
+        .hero-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--pink-dark);
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+        }
+        .hero-subtitle {
+            color: var(--text-light);
+            font-size: 0.95rem;
+            margin-bottom: 16px;
+        }
+        .days-counter {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--pink-light);
+            padding: 12px 22px;
+            border-radius: 30px;
+            font-weight: 600;
+            color: var(--pink-dark);
+            font-size: 1.05rem;
+            margin: 8px 0;
+        }
+        .days-counter .number {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--pink);
+            line-height: 1;
+        }
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .quick-action-btn {
+            background: var(--white);
+            border: 2px solid var(--pink-light);
+            border-radius: var(--radius-sm);
+            padding: 16px 12px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text);
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        .quick-action-btn:hover {
+            border-color: var(--pink);
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-lg);
+        }
+        .quick-action-btn:active {
+            transform: scale(0.96);
+        }
+        .quick-action-btn .icon {
+            font-size: 2rem;
+        }
+
+        /* ============ 回忆墙 ============ */
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .section-title {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--pink-dark);
+            letter-spacing: -0.3px;
+        }
+        .btn {
+            padding: 11px 22px;
+            border-radius: 25px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: var(--transition);
+            letter-spacing: 0.2px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+        .btn-primary {
+            background: var(--pink);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(255, 107, 157, 0.3);
+        }
+        .btn-primary:hover {
+            background: var(--pink-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 157, 0.4);
+        }
+        .btn-primary:active {
+            transform: scale(0.95);
+        }
+        .btn-outline {
+            background: var(--white);
+            color: var(--pink);
+            border: 2px solid var(--pink);
+        }
+        .btn-outline:hover {
+            background: var(--pink-light);
+        }
+        .btn-sm {
+            padding: 7px 14px;
+            font-size: 0.8rem;
+            border-radius: 20px;
+        }
+        .btn-danger {
+            background: #fff;
+            color: #e0555f;
+            border: 2px solid #fcc;
+        }
+        .btn-danger:hover {
+            background: #fff0f0;
+        }
+        .memory-timeline {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .memory-card {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+            position: relative;
+            border-left: 4px solid var(--pink);
+            transition: var(--transition);
+            animation: fadeSlideIn 0.4s ease;
+        }
+        .memory-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateX(3px);
+        }
+        .memory-card .memory-date {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .memory-card .memory-content {
+            font-size: 0.95rem;
+            color: var(--text);
+            line-height: 1.7;
+            margin-bottom: 8px;
+            word-break: break-word;
+        }
+        .memory-card .memory-mood {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.78rem;
+            background: var(--pink-light);
+            color: var(--pink-dark);
+            font-weight: 500;
+        }
+        .memory-card .memory-image {
+            width: 100%;
+            max-height: 280px;
+            object-fit: cover;
+            border-radius: var(--radius-sm);
+            margin-top: 10px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .memory-card .memory-image:hover {
+            opacity: 0.9;
+        }
+        .memory-card .delete-memory {
+            position: absolute;
+            top: 12px;
+            right: 14px;
+            background: none;
+            border: none;
+            font-size: 1.1rem;
+            cursor: pointer;
+            opacity: 0.4;
+            transition: var(--transition);
+            padding: 4px 8px;
+            border-radius: 50%;
+        }
+        .memory-card .delete-memory:hover {
+            opacity: 1;
+            background: #fff0f0;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 50px 20px;
+            color: var(--text-light);
+        }
+        .empty-state .icon {
+            font-size: 4rem;
+            margin-bottom: 12px;
+        }
+        .empty-state p {
+            font-size: 0.95rem;
+        }
+
+        /* ============ 点餐页面 ============ */
+        .menu-categories {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+            position: sticky;
+            top: calc(var(--nav-height) + 8px);
+            z-index: 10;
+            background: rgba(255, 245, 247, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 8px 0;
+            border-radius: 30px;
+        }
+        .cat-btn {
+            padding: 9px 18px;
+            border-radius: 22px;
+            border: 2px solid transparent;
+            background: var(--white);
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: var(--transition);
+            white-space: nowrap;
+            color: var(--text-light);
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+        .cat-btn.active {
+            background: var(--pink);
+            color: #fff;
+            border-color: var(--pink);
+            font-weight: 600;
+        }
+        .cat-btn:hover {
+            border-color: var(--pink);
+            color: var(--pink-dark);
+        }
+        .cat-btn.active:hover {
+            color: #fff;
+        }
+        .menu-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+        }
+        .menu-item {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 18px;
+            box-shadow: var(--shadow);
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+            overflow: hidden;
+            border: 2px solid transparent;
+        }
+        .menu-item:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+            border-color: var(--pink-light);
+        }
+        .menu-item:active {
+            transform: scale(0.97);
+        }
+        .menu-item .item-emoji {
+            font-size: 3.5rem;
+            text-align: center;
+            transition: var(--transition);
+        }
+        .menu-item:hover .item-emoji {
+            transform: scale(1.1);
+        }
+        .menu-item .item-name {
+            font-weight: 700;
+            font-size: 1rem;
+            color: var(--text);
+        }
+        .menu-item .item-desc {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            line-height: 1.4;
+        }
+        .menu-item .item-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: auto;
+        }
+        .menu-item .item-price {
+            font-weight: 700;
+            font-size: 1.15rem;
+            color: #e0555f;
+        }
+        .menu-item .add-btn {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: var(--pink);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            font-size: 1.3rem;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        .menu-item .add-btn:hover {
+            background: var(--pink-dark);
+            transform: rotate(90deg);
+        }
+        .menu-item .add-btn:active {
+            transform: scale(0.85) rotate(90deg);
+        }
+        .menu-item .added-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #4ecb71;
+            color: #fff;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            animation: popIn 0.3s ease;
+        }
+        @keyframes popIn {
+            0% {
+                transform: scale(0);
+                opacity: 0;
+            }
+            70% {
+                transform: scale(1.2);
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        .random-pick-area {
+            text-align: center;
+            padding: 20px;
+            background: var(--gold-light);
+            border-radius: var(--radius);
+            margin-bottom: 20px;
+            box-shadow: var(--shadow);
+        }
+        .random-pick-area .pick-result {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--gold);
+            margin-top: 10px;
+            min-height: 30px;
+            transition: var(--transition);
+        }
+
+        /* ============ 购物车弹窗 ============ */
+        .cart-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.45);
+            z-index: 200;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .cart-overlay.open {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .cart-panel {
+            background: var(--white);
+            border-radius: 22px 22px 0 0;
+            width: 100%;
+            max-width: 500px;
+            max-height: 75vh;
+            overflow-y: auto;
+            padding: 20px 20px 30px;
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.2);
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .cart-overlay.open .cart-panel {
+            transform: translateY(0);
+        }
+        .cart-panel h3 {
+            font-size: 1.2rem;
+            margin-bottom: 14px;
+            color: var(--pink-dark);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            position: sticky;
+            top: 0;
+            background: var(--white);
+            padding-bottom: 10px;
+            z-index: 1;
+        }
+        .cart-item-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #f5f0f2;
+        }
+        .cart-item-row .cart-item-emoji {
+            font-size: 2rem;
+            flex-shrink: 0;
+        }
+        .cart-item-row .cart-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .cart-item-row .cart-item-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        .cart-item-row .cart-item-price {
+            font-size: 0.8rem;
+            color: var(--text-light);
+        }
+        .cart-item-row .qty-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .qty-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid #ddd;
+            background: #fff;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 700;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text);
+        }
+        .qty-btn:hover {
+            border-color: var(--pink);
+            color: var(--pink);
+        }
+        .qty-btn:active {
+            background: var(--pink-light);
+        }
+        .qty-num {
+            font-weight: 700;
+            min-width: 22px;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+        .cart-total {
+            font-weight: 700;
+            font-size: 1.15rem;
+            text-align: right;
+            padding: 14px 0;
+            color: #e0555f;
+            position: sticky;
+            bottom: 0;
+            background: var(--white);
+            border-top: 2px solid #f5f0f2;
+            margin-top: 8px;
+        }
+        .cart-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .cart-actions .btn {
+            flex: 1;
+            justify-content: center;
+            min-width: 100px;
+        }
+
+        /* ============ 订单成功弹窗 ============ */
+        .toast {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-120px);
+            background: #4ecb71;
+            color: #fff;
+            padding: 14px 28px;
+            border-radius: 30px;
+            font-weight: 600;
+            z-index: 300;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 8px 30px rgba(78, 203, 113, 0.4);
+            font-size: 0.95rem;
+            pointer-events: none;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* ============ 模态框 ============ */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 250;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            padding: 20px;
+        }
+        .modal-overlay.open {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .modal {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 28px 22px;
+            width: 100%;
+            max-width: 460px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+            transform: scale(0.9);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        .modal-overlay.open .modal {
+            transform: scale(1);
+        }
+        .modal h3 {
+            font-size: 1.2rem;
+            margin-bottom: 16px;
+            color: var(--pink-dark);
+            text-align: center;
+        }
+        .modal .form-group {
+            margin-bottom: 14px;
+        }
+        .modal label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+            color: var(--text);
+        }
+        .modal input,
+        .modal textarea,
+        .modal select {
+            width: 100%;
+            padding: 12px 14px;
+            border: 2px solid #f0e0e8;
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            transition: var(--transition);
+            font-family: inherit;
+            resize: vertical;
+            background: #fdfafb;
+            color: var(--text);
+        }
+        .modal input:focus,
+        .modal textarea:focus,
+        .modal select:focus {
+            outline: none;
+            border-color: var(--pink);
+            box-shadow: 0 0 0 4px rgba(255, 107, 157, 0.08);
+            background: #fff;
+        }
+        .modal textarea {
+            min-height: 100px;
+        }
+        .modal .btn-row {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .modal .image-preview {
+            width: 100%;
+            max-height: 200px;
+            object-fit: cover;
+            border-radius: var(--radius-sm);
+            margin-top: 8px;
+            display: none;
+        }
+
+        /* ============ 底部导航(移动端) ============ */
+        .bottom-nav {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 107, 157, 0.1);
+            z-index: 100;
+            justify-content: space-around;
+            align-items: center;
+            height: var(--bottom-nav-height);
+            box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.05);
+            padding: 0 8px;
+        }
+        .bottom-nav button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.7rem;
+            color: var(--text-light);
+            transition: var(--transition);
+            padding: 6px 10px;
+            border-radius: 12px;
+            font-weight: 500;
+            position: relative;
+        }
+        .bottom-nav button .nav-icon {
+            font-size: 1.4rem;
+            transition: var(--transition);
+        }
+        .bottom-nav button.active {
+            color: var(--pink);
+        }
+        .bottom-nav button.active .nav-icon {
+            transform: scale(1.15);
+        }
+        .bottom-nav .cart-count-mobile {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: #ff4757;
+            color: #fff;
+            font-size: 0.65rem;
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            pointer-events: none;
+        }
+
+        /* ============ 响应式 ============ */
+        @media (max-width: 768px) {
+            .top-nav {
+                padding: 0 12px;
+                height: 56px;
+            }
+            .nav-brand {
+                font-size: 1.05rem;
+            }
+            .nav-links {
+                display: none;
+                position: absolute;
+                top: 56px;
+                left: 0;
+                width: 100%;
+                background: rgba(255, 255, 255, 0.96);
+                backdrop-filter: blur(20px);
+                -webkit-backdrop-filter: blur(20px);
+                flex-direction: column;
+                padding: 8px 16px 16px;
+                gap: 2px;
+                box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+                border-radius: 0 0 18px 18px;
+            }
+            .nav-links.open {
+                display: flex;
+            }
+            .nav-links button {
+                width: 100%;
+                text-align: left;
+                padding: 13px 16px;
+                border-radius: 12px;
+                font-size: 0.95rem;
+            }
+            .hamburger {
+                display: block;
+            }
+            .bottom-nav {
+                display: flex;
+            }
+            body {
+                padding-bottom: calc(var(--bottom-nav-height) + 10px);
+            }
+            .menu-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 10px;
+            }
+            .menu-item {
+                padding: 14px;
+            }
+            .menu-item .item-emoji {
+                font-size: 2.5rem;
+            }
+            .menu-item .item-name {
+                font-size: 0.85rem;
+            }
+            .menu-item .item-price {
+                font-size: 0.95rem;
+            }
+            .menu-item .add-btn {
+                width: 32px;
+                height: 32px;
+                font-size: 1.1rem;
+            }
+            .hero-avatar {
+                font-size: 3.5rem;
+            }
+            .hero-title {
+                font-size: 1.3rem;
+            }
+            .quick-actions {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+            .quick-action-btn {
+                padding: 12px 8px;
+                font-size: 0.8rem;
+            }
+            .quick-action-btn .icon {
+                font-size: 1.5rem;
+            }
+            .memory-card {
+                padding: 14px;
+            }
+            .cart-panel {
+                max-height: 70vh;
+            }
+            .menu-categories {
+                gap: 6px;
+                top: calc(56px + 8px);
+            }
+            .cat-btn {
+                padding: 7px 13px;
+                font-size: 0.78rem;
+            }
+            .section-title {
+                font-size: 1.15rem;
+            }
+            .btn {
+                padding: 9px 16px;
+                font-size: 0.82rem;
+            }
+        }
+        @media (max-width: 400px) {
+            .menu-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }
+            .menu-item {
+                padding: 10px;
+                gap: 4px;
+                border-radius: var(--radius-sm);
+            }
+            .menu-item .item-emoji {
+                font-size: 2rem;
+            }
+            .menu-item .item-name {
+                font-size: 0.78rem;
+            }
+            .menu-item .item-desc {
+                font-size: 0.7rem;
+            }
+            .menu-item .item-price {
+                font-size: 0.85rem;
+            }
+            .menu-item .add-btn {
+                width: 28px;
+                height: 28px;
+                font-size: 1rem;
+            }
+        }
+        @media (min-width: 769px) {
+            .bottom-nav {
+                display: none;
+            }
+            body {
+                padding-bottom: 0;
+            }
+            .cart-panel {
+                border-radius: 22px;
+                margin-bottom: 20px;
+            }
+            .cart-overlay {
+                align-items: center;
+            }
+        }
+
+        /* ============ 图片灯箱 ============ */
+        .lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 280;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            padding: 20px;
+        }
+        .lightbox.open {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .lightbox img {
+            max-width: 90vw;
+            max-height: 85vh;
+            border-radius: 12px;
+            object-fit: contain;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s;
+        }
+        .lightbox.open img {
+            transform: scale(1);
+        }
+        .lightbox .close-lightbox {
+            position: absolute;
+            top: 20px;
+            right: 28px;
+            font-size: 2.5rem;
+            color: #fff;
+            cursor: pointer;
+            z-index: 1;
+            background: none;
+            border: none;
+            opacity: 0.7;
+            transition: var(--transition);
+        }
+        .lightbox .close-lightbox:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 飘落心形背景 -->
+    <div class="hearts-container" id="heartsContainer"></div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- 图片灯箱 -->
+    <div class="lightbox" id="lightbox">
+        <button class="close-lightbox" onclick="closeLightbox()">&times;</button>
+        <img src="" alt="大图预览" id="lightboxImg">
+    </div>
+
+    <!-- 顶部导航 -->
+    <nav class="top-nav">
+        <div class="nav-brand" onclick="switchPage('home')">
+            <span class="logo-icon">💕</span> 甜蜜小窝
+        </div>
+        <button class="hamburger" id="hamburgerBtn" aria-label="菜单">☰</button>
+        <ul class="nav-links" id="navLinks">
+            <li><button data-page="home" class="active" onclick="switchPage('home')">🏠 首页</button></li>
+            <li><button data-page="memories" onclick="switchPage('memories')">📝 回忆墙</button></li>
+            <li><button data-page="order" onclick="switchPage('order')">🍽️ 点餐</button></li>
+            <li>
+                <button class="cart-badge" onclick="openCart()">
+                    🛒 购物车
+                    <span class="cart-count" id="cartCountBadge" style="display:none;">0</span>
+                </button>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+        <!-- 首页 -->
+        <section class="page active" id="page-home">
+            <div class="hero-card">
+                <div class="hero-avatar">💑</div>
+                <h1 class="hero-title">我们的甜蜜小窝</h1>
+                <p class="hero-subtitle">记录每一个心动的瞬间</p>
+                <div class="days-counter">
+                    🗓️ 我们已经在一起
+                    <span class="number" id="daysCount">0</span> 天啦
+                </div>
+                <p style="font-size:0.85rem;color:var(--text-light);margin-top:4px;" id="anniversaryDateDisplay"></p>
+                <div class="quick-actions">
+                    <button class="quick-action-btn" onclick="switchPage('memories')">
+                        <span class="icon">📝</span> 写回忆
+                    </button>
+                    <button class="quick-action-btn" onclick="switchPage('order')">
+                        <span class="icon">🍽️</span> 去点餐
+                    </button>
+                    <button class="quick-action-btn" onclick="openCart()">
+                        <span class="icon">🛒</span> 购物车
+                    </button>
+                    <button class="quick-action-btn" onclick="randomPick()">
+                        <span class="icon">🎲</span> 吃啥随机选
+                    </button>
+                </div>
+            </div>
+            <!-- 随机推荐区域 -->
+            <div class="random-pick-area" id="randomPickArea">
+                <p style="font-weight:600;">🎯 不知道吃什么？让我帮你选！</p>
+                <button class="btn btn-primary" onclick="randomPick()" style="margin-top:8px;">🎲 随机推荐一道菜</button>
+                <div class="pick-result" id="pickResult"></div>
+            </div>
+        </section>
+
+        <!-- 回忆墙 -->
+        <section class="page" id="page-memories">
+            <div class="section-header">
+                <h2 class="section-title">📝 我们的回忆墙</h2>
+                <button class="btn btn-primary" onclick="openMemoryModal()">+ 添加回忆</button>
+            </div>
+            <div class="memory-timeline" id="memoryTimeline">
+                <div class="empty-state" id="memoryEmpty">
+                    <div class="icon">💌</div>
+                    <p>还没有回忆呢~<br>点击上方按钮添加你们的甜蜜瞬间吧！</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 点餐页面 -->
+        <section class="page" id="page-order">
+            <div class="section-header">
+                <h2 class="section-title">🍽️ 美味菜单</h2>
+                <button class="btn btn-outline btn-sm" onclick="openCart()">🛒 购物车 <span id="cartCountInline">(0)</span></button>
+            </div>
+            <!-- 分类筛选 -->
+            <div class="menu-categories" id="menuCategories">
+                <button class="cat-btn active" data-cat="all">全部</button>
+                <button class="cat-btn" data-cat="主食">🍚 主食</button>
+                <button class="cat-btn" data-cat="小食">🍟 小食</button>
+                <button class="cat-btn" data-cat="饮品">🥤 饮品</button>
+                <button class="cat-btn" data-cat="甜品">🍰 甜品</button>
+            </div>
+            <!-- 菜单网格 -->
+            <div class="menu-grid" id="menuGrid"></div>
+        </section>
+    </main>
+
+    <!-- 底部导航(移动端) -->
+    <nav class="bottom-nav" id="bottomNav">
+        <button data-page="home" class="active" onclick="switchPage('home')">
+            <span class="nav-icon">🏠</span> 首页
+        </button>
+        <button data-page="memories" onclick="switchPage('memories')">
+            <span class="nav-icon">📝</span> 回忆
+        </button>
+        <button data-page="order" onclick="switchPage('order')">
+            <span class="nav-icon">🍽️</span> 点餐
+        </button>
+        <button onclick="openCart()" style="position:relative;">
+            <span class="nav-icon">🛒</span> 购物车
+            <span class="cart-count-mobile" id="cartCountMobile" style="display:none;">0</span>
+        </button>
+    </nav>
+
+    <!-- 购物车弹窗 -->
+    <div class="cart-overlay" id="cartOverlay">
+        <div class="cart-panel" id="cartPanel">
+            <h3>🛒 购物车 <span style="font-size:0.8rem;font-weight:400;color:var(--text-light);">(点击空白处关闭)</span></h3>
+            <div id="cartItems"></div>
+            <div class="cart-total" id="cartTotal">合计：¥0.00</div>
+            <div class="cart-actions">
+                <button class="btn btn-outline btn-sm" onclick="clearCart()">🗑️ 清空</button>
+                <button class="btn btn-primary" onclick="submitOrder()" id="submitOrderBtn">✅ 提交订单</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加回忆模态框 -->
+    <div class="modal-overlay" id="memoryModalOverlay">
+        <div class="modal" id="memoryModal">
+            <h3>💌 添加甜蜜回忆</h3>
+            <div class="form-group">
+                <label>📅 日期</label>
+                <input type="date" id="memoryDate">
+            </div>
+            <div class="form-group">
+                <label>💬 内容</label>
+                <textarea id="memoryContent" placeholder="写下你们的甜蜜瞬间..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>😊 心情</label>
+                <select id="memoryMood">
+                    <option value="😍 甜蜜">😍 甜蜜</option>
+                    <option value="🥰 幸福">🥰 幸福</option>
+                    <option value="😆 开心">😆 开心</option>
+                    <option value="🤗 温暖">🤗 温暖</option>
+                    <option value="😢 想念">😢 想念</option>
+                    <option value="🎉 庆祝">🎉 庆祝</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>🖼️ 图片URL（可选）</label>
+                <input type="text" id="memoryImageUrl" placeholder="输入图片链接，或使用下方上传">
+                <small style="color:var(--text-light);">提示：粘贴图片URL或点击下方上传</small>
+            </div>
+            <div class="form-group">
+                <label>📤 上传图片（可选）</label>
+                <input type="file" id="memoryImageFile" accept="image/*" style="padding:8px;">
+                <small style="color:var(--text-light);">图片会自动压缩，建议小于2MB</small>
+            </div>
+            <img class="image-preview" id="memoryImagePreview" alt="预览">
+            <div class="btn-row">
+                <button class="btn btn-outline btn-sm" onclick="closeMemoryModal()">取消</button>
+                <button class="btn btn-primary btn-sm" onclick="saveMemory()">💾 保存回忆</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 订单确认模态框 -->
+    <div class="modal-overlay" id="orderConfirmOverlay">
+        <div class="modal" id="orderConfirmModal">
+            <h3>🎉 确认下单</h3>
+            <div id="orderSummary" style="margin-bottom:14px;font-size:0.9rem;"></div>
+            <p style="text-align:center;color:var(--text-light);font-size:0.85rem;">订单将保存在本地记录中</p>
+            <div class="btn-row">
+                <button class="btn btn-outline btn-sm" onclick="closeOrderConfirm()">再想想</button>
+                <button class="btn btn-primary btn-sm" onclick="confirmOrder()">✅ 确认下单</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            // ============ 数据 ============
+            const DEFAULT_MENU = [
+                { id: 'm1', name: '意式经典披萨', desc: '芝士浓郁，饼底酥脆', price: 68, cat: '主食', emoji: '🍕' },
+                { id: 'm2', name: '牛肉汉堡套餐', desc: '牛肉堡+薯条+可乐', price: 45, cat: '主食', emoji: '🍔' },
+                { id: 'm3', name: '番茄肉酱意面', desc: '经典意式肉酱风味', price: 38, cat: '主食', emoji: '🍝' },
+                { id: 'm4', name: '照烧鸡腿饭', desc: '日式照烧，鲜嫩多汁', price: 42, cat: '主食', emoji: '🍱' },
+                { id: 'm5', name: '豚骨拉面', desc: '浓郁骨汤，爽滑拉面', price: 35, cat: '主食', emoji: '🍜' },
+                { id: 'm6', name: '韩式石锅拌饭', desc: '锅巴焦香，酱料十足', price: 40, cat: '主食', emoji: '🥘' },
+                { id: 'm7', name: '黄金脆薯', desc: '外酥里嫩，金黄诱人', price: 18, cat: '小食', emoji: '🍟' },
+                { id: 'm8', name: '韩式炸鸡', desc: '甜辣酱汁，酥脆可口', price: 28, cat: '小食', emoji: '🍗' },
+                { id: 'm9', name: '凯撒沙拉', desc: '新鲜蔬菜，健康美味', price: 22, cat: '小食', emoji: '🥗' },
+                { id: 'm10', name: '墨西哥塔可', desc: '香辣牛肉，异域风情', price: 25, cat: '小食', emoji: '🌮' },
+                { id: 'm11', name: '鲜榨橙汁', desc: '100%新鲜橙子榨取', price: 15, cat: '饮品', emoji: '🍹' },
+                { id: 'm12', name: '珍珠奶茶', desc: 'Q弹珍珠，丝滑奶茶', price: 18, cat: '饮品', emoji: '🥤' },
+                { id: 'm13', name: '拿铁咖啡', desc: '意式浓缩+绵密奶泡', price: 20, cat: '饮品', emoji: '☕' },
+                { id: 'm14', name: '抹茶拿铁', desc: '日式抹茶，清香回甘', price: 22, cat: '饮品', emoji: '🍵' },
+                { id: 'm15', name: '提拉米苏', desc: '经典意式甜点', price: 30, cat: '甜品', emoji: '🍰' },
+                { id: 'm16', name: '双球冰淇淋', desc: '香草+巧克力双球', price: 16, cat: '甜品', emoji: '🍦' },
+                { id: 'm17', name: '巧克力甜甜圈', desc: '浓郁巧克力淋面', price: 12, cat: '甜品', emoji: '🍩' },
+            ];
+
+            // 默认纪念日（可修改）
+            const DEFAULT_ANNIVERSARY = '2024-01-01';
+
+            // ============ 状态 ============
+            let cart = []; // {id, name, price, emoji, qty}
+            let memories = [];
+            let currentCat = 'all';
+            let currentPage = 'home';
+            let anniversaryDate = DEFAULT_ANNIVERSARY;
+
+            // ============ DOM引用 ============
+            const $ = (sel) => document.querySelector(sel);
+            const $$ = (sel) => document.querySelectorAll(sel);
+
+            // ============ 初始化 ============
+            function init() {
+                loadData();
+                createHearts();
+                renderMenu();
+                renderMemories();
+                updateCartUI();
+                updateDaysCounter();
+                setupEventListeners();
+                // 初始页面
+                switchPage('home');
+            }
+
+            function loadData() {
+                try {
+                    const savedCart = localStorage.getItem('sweet_home_cart');
+                    if (savedCart) cart = JSON.parse(savedCart);
+                    const savedMemories = localStorage.getItem('sweet_home_memories');
+                    if (savedMemories) memories = JSON.parse(savedMemories);
+                    const savedAnniversary = localStorage.getItem('sweet_home_anniversary');
+                    if (savedAnniversary) anniversaryDate = savedAnniversary;
+                } catch (e) {
+                    console.warn('数据加载失败，使用默认值', e);
+                    cart = [];
+                    memories = [];
+                    anniversaryDate = DEFAULT_ANNIVERSARY;
+                }
+            }
+
+            function saveData() {
+                try {
+                    localStorage.setItem('sweet_home_cart', JSON.stringify(cart));
+                    localStorage.setItem('sweet_home_memories', JSON.stringify(memories));
+                    localStorage.setItem('sweet_home_anniversary', anniversaryDate);
+                } catch (e) {
+                    showToast('⚠️ 存储空间不足，请清理一些回忆或订单');
+                }
+            }
+
+            // ============ 飘落心形 ============
+            function createHearts() {
+                const container = $('#heartsContainer');
+                const heartEmojis = ['💕', '💖', '💗', '💝', '❤️', '🩷', '💓', '✨', '🌸'];
+                const count = window.innerWidth < 768 ? 15 : 25;
+                for (let i = 0; i < count; i++) {
+                    const span = document.createElement('span');
+                    span.className = 'heart-particle';
+                    span.textContent = heartEmojis[Math.floor(Math.random() * heartEmojis.length)];
+                    span.style.left = Math.random() * 95 + '%';
+                    span.style.fontSize = (14 + Math.random() * 22) + 'px';
+                    span.style.animationDuration = (8 + Math.random() * 16) + 's';
+                    span.style.animationDelay = Math.random() * 14 + 's';
+                    span.style.opacity = (0.2 + Math.random() * 0.3);
+                    container.appendChild(span);
+                }
+            }
+
+            // ============ Toast ============
+            function showToast(msg, duration = 2200) {
+                const toast = $('#toast');
+                toast.textContent = msg;
+                toast.classList.add('show');
+                clearTimeout(toast._timeout);
+                toast._timeout = setTimeout(() => toast.classList.remove('show'), duration);
+            }
+
+            // ============ 页面切换 ============
+            function switchPage(page) {
+                currentPage = page;
+                // 更新页面显示
+                $$('.page').forEach(p => p.classList.remove('active'));
+                const targetPage = $('#page-' + page);
+                if (targetPage) targetPage.classList.add('active');
+                // 更新导航
+                $$('.nav-links button[data-page]').forEach(b => b.classList.remove('active'));
+                const navBtn = document.querySelector(`.nav-links button[data-page="${page}"]`);
+                if (navBtn) navBtn.classList.add('active');
+                // 更新底部导航
+                $$('.bottom-nav button[data-page]').forEach(b => b.classList.remove('active'));
+                const bottomBtn = document.querySelector(`.bottom-nav button[data-page="${page}"]`);
+                if (bottomBtn) bottomBtn.classList.add('active');
+                // 关闭汉堡菜单
+                $('#navLinks').classList.remove('open');
+                // 滚动到顶部
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                // 如果切换到点餐页，重新渲染菜单
+                if (page === 'order') renderMenu();
+                if (page === 'memories') renderMemories();
+                if (page === 'home') updateDaysCounter();
+            }
+
+            // ============ 纪念日 ============
+            function updateDaysCounter() {
+                const startDate = new Date(anniversaryDate);
+                const today = new Date();
+                const diffTime = today - startDate;
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                const daysCount = $('#daysCount');
+                if (daysCount) daysCount.textContent = diffDays >= 0 ? diffDays : 0;
+                const dateDisplay = $('#anniversaryDateDisplay');
+                if (dateDisplay) {
+                    dateDisplay.textContent = `纪念日：${anniversaryDate} ｜ 点击纪念日可修改`;
+                    dateDisplay.style.cursor = 'pointer';
+                    dateDisplay.onclick = () => changeAnniversary();
+                }
+            }
+
+            function changeAnniversary() {
+                const newDate = prompt('请输入你们的纪念日（格式：YYYY-MM-DD）', anniversaryDate);
+                if (newDate && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+                    const d = new Date(newDate);
+                    if (!isNaN(d.getTime())) {
+                        anniversaryDate = newDate;
+                        saveData();
+                        updateDaysCounter();
+                        showToast('💕 纪念日已更新！');
+                    } else {
+                        showToast('⚠️ 日期格式不正确');
+                    }
+                } else if (newDate) {
+                    showToast('⚠️ 请使用YYYY-MM-DD格式');
+                }
+            }
+
+            // ============ 回忆功能 ============
+            function renderMemories() {
+                const timeline = $('#memoryTimeline');
+                const emptyState = $('#memoryEmpty');
+                if (!timeline) return;
+                // 清除旧卡片（保留empty状态元素）
+                const oldCards = timeline.querySelectorAll('.memory-card');
+                oldCards.forEach(c => c.remove());
+
+                if (memories.length === 0) {
+                    if (emptyState) emptyState.style.display = 'block';
+                    return;
+                }
+                if (emptyState) emptyState.style.display = 'none';
+
+                // 按日期倒序
+                const sorted = [...memories].sort((a, b) => new Date(b.date) - new Date(a.date));
+                sorted.forEach((mem, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'memory-card';
+                    card.style.animationDelay = (index * 0.05) + 's';
+                    card.innerHTML = `
+                <button class="delete-memory" title="删除此回忆" data-index="${memories.indexOf(mem)}">🗑️</button>
+                <div class="memory-date">📅 ${mem.date || '未知日期'}</div>
+                <div class="memory-content">${escapeHTML(mem.content)}</div>
+                <span class="memory-mood">${mem.mood || '🥰 幸福'}</span>
+                ${mem.image ? `<img class="memory-image" src="${escapeHTML(mem.image)}" alt="回忆图片" loading="lazy" onclick="openLightbox('${escapeHTML(mem.image)}')">` : ''}
+              `;
+                    // 删除按钮事件
+                    card.querySelector('.delete-memory').addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const idx = parseInt(this.getAttribute('data-index'));
+                        if (idx >= 0 && idx < memories.length) {
+                            if (confirm('确定要删除这条回忆吗？')) {
+                                memories.splice(idx, 1);
+                                saveData();
+                                renderMemories();
+                                showToast('回忆已删除');
+                            }
+                        }
+                    });
+                    timeline.appendChild(card);
+                });
+            }
+
+            function openMemoryModal() {
+                $('#memoryModalOverlay').classList.add('open');
+                $('#memoryDate').value = new Date().toISOString().split('T')[0];
+                $('#memoryContent').value = '';
+                $('#memoryMood').value = '😍 甜蜜';
+                $('#memoryImageUrl').value = '';
+                $('#memoryImageFile').value = '';
+                $('#memoryImagePreview').style.display = 'none';
+                $('#memoryImagePreview').src = '';
+            }
+
+            function closeMemoryModal() {
+                $('#memoryModalOverlay').classList.remove('open');
+            }
+
+            function saveMemory() {
+                const date = $('#memoryDate').value;
+                const content = $('#memoryContent').value.trim();
+                const mood = $('#memoryMood').value;
+                const imageUrl = $('#memoryImageUrl').value.trim();
+                const imagePreview = $('#memoryImagePreview');
+                let finalImage = imageUrl;
+
+                if (!content) {
+                    showToast('⚠️ 请输入回忆内容');
+                    return;
+                }
+                if (!date) {
+                    showToast('⚠️ 请选择日期');
+                    return;
+                }
+
+                // 如果有预览图片（上传的），优先使用
+                if (imagePreview.style.display !== 'none' && imagePreview.src && imagePreview.src.startsWith(
+                        'data:')) {
+                    finalImage = imagePreview.src;
+                }
+
+                const memory = {
+                    date: date,
+                    content: content,
+                    mood: mood,
+                    image: finalImage || null,
+                    createdAt: new Date().toISOString(),
+                };
+
+                // 检查图片大小
+                if (finalImage && finalImage.startsWith('data:') && finalImage.length > 1024 * 1024 * 2) {
+                    showToast('⚠️ 图片太大(>2MB)，请使用更小的图片或URL');
+                    return;
+                }
+
+                memories.push(memory);
+                saveData();
+                closeMemoryModal();
+                renderMemories();
+                showToast('💌 回忆已保存！');
+            }
+
+            // 图片文件上传处理
+            function handleImageUpload(file) {
+                if (!file) return;
+                if (!file.type.startsWith('image/')) {
+                    showToast('⚠️ 请选择图片文件');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    // 压缩图片
+                    compressImage(e.target.result, 800, 0.7, function(compressed) {
+                        const preview = $('#memoryImagePreview');
+                        preview.src = compressed;
+                        preview.style.display = 'block';
+                        $('#memoryImageUrl').value = '';
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+
+            function compressImage(dataUrl, maxWidth, quality, callback) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > maxWidth) {
+                        height = Math.round(height * (maxWidth / width));
+                        width = maxWidth;
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    callback(canvas.toDataURL('image/jpeg', quality));
+                };
+                img.src = dataUrl;
+            }
+
+            function escapeHTML(str) {
+                const div = document.createElement('div');
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            // ============ 灯箱 ============
+            function openLightbox(src) {
+                const lightbox = $('#lightbox');
+                const img = $('#lightboxImg');
+                img.src = src;
+                lightbox.classList.add('open');
+            }
+
+            function closeLightbox() {
+                $('#lightbox').classList.remove('open');
+            }
+
+            // ============ 菜单渲染 ============
+            function renderMenu(cat = null) {
+                if (cat !== null) currentCat = cat;
+                const grid = $('#menuGrid');
+                if (!grid) return;
+                grid.innerHTML = '';
+                const filtered = currentCat === 'all' ?
+                    DEFAULT_MENU :
+                    DEFAULT_MENU.filter(item => item.cat === currentCat);
+                filtered.forEach(item => {
+                    const inCart = cart.find(c => c.id === item.id);
+                    const qty = inCart ? inCart.qty : 0;
+                    const card = document.createElement('div');
+                    card.className = 'menu-item';
+                    card.innerHTML = `
+                <div class="item-emoji">${item.emoji}</div>
+                <div class="item-name">${item.name}</div>
+                <div class="item-desc">${item.desc}</div>
+                <div class="item-footer">
+                  <span class="item-price">¥${item.price}</span>
+                  <button class="add-btn" data-id="${item.id}">${qty > 0 ? '✓' : '+'}</button>
+                </div>
+                ${qty > 0 ? `<div class="added-indicator">${qty}</div>` : ''}
+              `;
+                    card.querySelector('.add-btn').addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        addToCart(item);
+                    });
+                    card.addEventListener('click', function() {
+                        addToCart(item);
+                    });
+                    grid.appendChild(card);
+                });
+            }
+
+            function addToCart(item) {
+                const existing = cart.find(c => c.id === item.id);
+                if (existing) {
+                    existing.qty += 1;
+                } else {
+                    cart.push({ id: item.id, name: item.name, price: item.price, emoji: item
+                            .emoji, qty: 1 });
+                }
+                saveData();
+                updateCartUI();
+                renderMenu(currentCat);
+                // 购物车徽章弹跳动画
+                const badge = $('#cartCountBadge');
+                if (badge) {
+                    badge.classList.remove('bump');
+                    void badge.offsetWidth;
+                    badge.classList.add('bump');
+                }
+                showToast(`✅ 已添加 ${item.name} 到购物车`);
+            }
+
+            function updateCartUI() {
+                const totalQty = cart.reduce((sum, c) => sum + c.qty, 0);
+                // 桌面端徽章
+                const badge = $('#cartCountBadge');
+                if (badge) {
+                    if (totalQty > 0) {
+                        badge.style.display = 'flex';
+                        badge.textContent = totalQty;
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                }
+                // 移动端徽章
+                const mobileBadge = $('#cartCountMobile');
+                if (mobileBadge) {
+                    if (totalQty > 0) {
+                        mobileBadge.style.display = 'flex';
+                        mobileBadge.textContent = totalQty;
+                    } else {
+                        mobileBadge.style.display = 'none';
+                    }
+                }
+                // 内联计数
+                const inline = $('#cartCountInline');
+                if (inline) inline.textContent = `(${totalQty})`;
+            }
+
+            // ============ 购物车 ============
+            function openCart() {
+                renderCartItems();
+                $('#cartOverlay').classList.add('open');
+            }
+
+            function closeCart() {
+                $('#cartOverlay').classList.remove('open');
+            }
+
+            function renderCartItems() {
+                const container = $('#cartItems');
+                const totalEl = $('#cartTotal');
+                if (!container || !totalEl) return;
+                if (cart.length === 0) {
+                    container.innerHTML =
+                        '<div class="empty-state"><div class="icon">🛒</div><p>购物车空空如也~<br>去菜单逛逛吧！</p></div>';
+                    totalEl.textContent = '合计：¥0.00';
+                    return;
+                }
+                let total = 0;
+                container.innerHTML = cart.map((item, i) => {
+                    const subtotal = item.price * item.qty;
+                    total += subtotal;
+                    return `
+                <div class="cart-item-row">
+                  <span class="cart-item-emoji">${item.emoji}</span>
+                  <div class="cart-item-info">
+                    <div class="cart-item-name">${item.name}</div>
+                    <div class="cart-item-price">¥${item.price} × ${item.qty} = ¥${subtotal}</div>
+                  </div>
+                  <div class="qty-control">
+                    <button class="qty-btn" onclick="changeQty(${i}, -1)">−</button>
+                    <span class="qty-num">${item.qty}</span>
+                    <button class="qty-btn" onclick="changeQty(${i}, 1)">+</button>
+                  </div>
+                </div>
+              `;
+                }).join('');
+                totalEl.textContent = `合计：¥${total.toFixed(2)}`;
+            }
+
+            function changeQty(index, delta) {
+                if (index < 0 || index >= cart.length) return;
+                cart[index].qty += delta;
+                if (cart[index].qty <= 0) {
+                    cart.splice(index, 1);
+                }
+                saveData();
+                updateCartUI();
+                renderCartItems();
+                renderMenu(currentCat);
+            }
+
+            function clearCart() {
+                if (cart.length === 0) return;
+                if (confirm('确定要清空购物车吗？')) {
+                    cart = [];
+                    saveData();
+                    updateCartUI();
+                    renderCartItems();
+                    renderMenu(currentCat);
+                    showToast('购物车已清空');
+                }
+            }
+
+            function submitOrder() {
+                if (cart.length === 0) {
+                    showToast('⚠️ 购物车为空，请先添加菜品');
+                    return;
+                }
+                // 显示订单确认
+                const summary = $('#orderSummary');
+                const total = cart.reduce((s, c) => s + c.price * c.qty, 0);
+                summary.innerHTML = cart.map(c =>
+                    `<div>${c.emoji} ${c.name} × ${c.qty} = ¥${(c.price * c.qty).toFixed(2)}</div>`
+                ).join('') + `<div style="font-weight:700;margin-top:8px;font-size:1.1rem;">总计：¥${total.toFixed(2)}</div>`;
+                $('#orderConfirmOverlay').classList.add('open');
+            }
+
+            function closeOrderConfirm() {
+                $('#orderConfirmOverlay').classList.remove('open');
+            }
+
+            function confirmOrder() {
+                const order = {
+                    items: [...cart],
+                    total: cart.reduce((s, c) => s + c.price * c.qty, 0),
+                    time: new Date().toISOString(),
+                    orderId: 'ORD' + Date.now().toString(36).toUpperCase(),
+                };
+                // 保存订单到localStorage
+                let orders = [];
+                try {
+                    const saved = localStorage.getItem('sweet_home_orders');
+                    if (saved) orders = JSON.parse(saved);
+                } catch (e) {}
+                orders.unshift(order);
+                // 最多保留20条订单
+                if (orders.length > 20) orders = orders.slice(0, 20);
+                try {
+                    localStorage.setItem('sweet_home_orders', JSON.stringify(orders));
+                } catch (e) {
+                    showToast('⚠️ 存储空间不足');
+                }
+                // 清空购物车
+                cart = [];
+                saveData();
+                updateCartUI();
+                renderCartItems();
+                renderMenu(currentCat);
+                closeOrderConfirm();
+                closeCart();
+                showToast('🎉 下单成功！订单已记录');
+            }
+
+            // ============ 随机推荐 ============
+            function randomPick() {
+                const allItems = DEFAULT_MENU;
+                const randomItem = allItems[Math.floor(Math.random() * allItems.length)];
+                const result = $('#pickResult');
+                if (result) {
+                    result.innerHTML =
+                        `💡 今日推荐：<span style="font-size:1.5rem;">${randomItem.emoji}</span> <strong>${randomItem.name}</strong> — ¥${randomItem.price}`;
+                    result.style.animation = 'none';
+                    void result.offsetWidth;
+                    result.style.animation = 'popIn 0.5s ease';
+                }
+                showToast(`🎲 推荐：${randomItem.name}！`);
+            }
+
+            // ============ 事件监听 ============
+            function setupEventListeners() {
+                // 汉堡菜单
+                $('#hamburgerBtn').addEventListener('click', function() {
+                    $('#navLinks').classList.toggle('open');
+                });
+                // 点击页面其他地方关闭汉堡菜单
+                document.addEventListener('click', function(e) {
+                    const navLinks = $('#navLinks');
+                    const hamburger = $('#hamburgerBtn');
+                    if (navLinks.classList.contains('open') &&
+                        !navLinks.contains(e.target) &&
+                        !hamburger.contains(e.target)) {
+                        navLinks.classList.remove('open');
+                    }
+                });
+                // 购物车遮罩点击关闭
+                $('#cartOverlay').addEventListener('click', function(e) {
+                    if (e.target === $('#cartOverlay')) {
+                        closeCart();
+                    }
+                });
+                // 模态框遮罩点击关闭
+                $('#memoryModalOverlay').addEventListener('click', function(e) {
+                    if (e.target === $('#memoryModalOverlay')) {
+                        closeMemoryModal();
+                    }
+                });
+                $('#orderConfirmOverlay').addEventListener('click', function(e) {
+                    if (e.target === $('#orderConfirmOverlay')) {
+                        closeOrderConfirm();
+                    }
+                });
+                // 灯箱点击关闭
+                $('#lightbox').addEventListener('click', function(e) {
+                    if (e.target === $('#lightbox') || e.target === $('#lightboxImg')) {
+                        closeLightbox();
+                    }
+                });
+                // ESC关闭
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        closeCart();
+                        closeMemoryModal();
+                        closeOrderConfirm();
+                        closeLightbox();
+                        $('#navLinks').classList.remove('open');
+                    }
+                });
+                // 菜单分类按钮
+                $('#menuCategories').addEventListener('click', function(e) {
+                    if (e.target.classList.contains('cat-btn')) {
+                        const cat = e.target.getAttribute('data-cat');
+                        // 更新active
+                        $$('#menuCategories .cat-btn').forEach(b => b.classList.remove(
+                            'active'));
+                        e.target.classList.add('active');
+                        renderMenu(cat);
+                    }
+                });
+                // 图片上传
+                const fileInput = $('#memoryImageFile');
+                if (fileInput) {
+                    fileInput.addEventListener('change', function() {
+                        if (this.files && this.files[0]) {
+                            handleImageUpload(this.files[0]);
+                        }
+                    });
+                }
+                // 图片URL输入实时预览
+                const urlInput = $('#memoryImageUrl');
+                if (urlInput) {
+                    urlInput.addEventListener('input', function() {
+                        const url = this.value.trim();
+                        const preview = $('#memoryImagePreview');
+                        if (url && (url.startsWith('http') || url.startsWith('data:'))) {
+                            preview.src = url;
+                            preview.style.display = 'block';
+                            // 清除文件上传
+                            $('#memoryImageFile').value = '';
+                        } else if (!url) {
+                            preview.style.display = 'none';
+                            preview.src = '';
+                        }
+                    });
+                }
+                // 窗口大小变化时重新创建心形
+                let resizeTimeout;
+                window.addEventListener('resize', () => {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => {
+                        const container = $('#heartsContainer');
+                        container.innerHTML = '';
+                        createHearts();
+                    }, 500);
+                });
+            }
+
+            // ============ 暴露到全局 ============
+            window.switchPage = switchPage;
+            window.openCart = openCart;
+            window.closeCart = closeCart;
+            window.changeQty = changeQty;
+            window.clearCart = clearCart;
+            window.submitOrder = submitOrder;
+            window.closeOrderConfirm = closeOrderConfirm;
+            window.confirmOrder = confirmOrder;
+            window.openMemoryModal = openMemoryModal;
+            window.closeMemoryModal = closeMemoryModal;
+            window.saveMemory = saveMemory;
+            window.openLightbox = openLightbox;
+            window.closeLightbox = closeLightbox;
+            window.randomPick = randomPick;
+            window.changeAnniversary = changeAnniversary;
+
+            // ============ 启动 ============
+            init();
+            console.log('💕 甜蜜小窝已就绪！');
+            console.log('📝 回忆数据：', memories.length, '条');
+            console.log('🛒 购物车：', cart.length, '种商品');
+            console.log('🍽️ 菜单：', DEFAULT_MENU.length, '道菜品');
+            console.log('💾 数据存储在 localStorage');
+            console.log('📱 响应式设计已启用');
+        })();
+    </script>
+</body>
+</html>
