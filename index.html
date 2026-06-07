@@ -550,6 +550,15 @@
         .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ecb71; }
         .sync-dot.syncing { background: #f0a050; animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .notify-fab {
+            position: fixed; bottom: 120px; right: 16px; z-index: 150;
+            width: 44px; height: 44px; border-radius: 50%; border: none; cursor: pointer;
+            background: var(--white); box-shadow: var(--shadow); font-size: 1.25rem;
+            display: flex; align-items: center; justify-content: center; transition: var(--transition);
+        }
+        .notify-fab:hover { transform: scale(1.08); }
+        .notify-fab.enabled { background: var(--pink); }
+        .notify-fab.denied { opacity: 0.5; }
 
         /* 响应式 */
         @media (max-width: 768px) {
@@ -573,6 +582,7 @@
             .hero-avatar { font-size: 3.5rem; }
             .hero-title { font-size: 1.3rem; }
             .sync-status { bottom: 90px; right: 8px; font-size: 0.7rem; }
+            .notify-fab { bottom: 130px; right: 8px; }
         }
         @media (min-width: 769px) {
             .bottom-nav { display: none; }
@@ -596,6 +606,7 @@
         <span class="sync-dot" id="syncDot"></span>
         <span id="syncText">已同步</span>
     </div>
+    <button class="notify-fab" id="notifyFab" title="开启手机通知提醒">🔔</button>
 
     <nav class="top-nav">
         <div class="nav-brand" onclick="switchPage('home')">
@@ -824,6 +835,29 @@
             <button class="action-sheet-btn" id="itemActionEdit">✏️ 修改这道菜</button>
             <button class="action-sheet-btn danger" id="itemActionDelete">🗑️ 删除这道菜</button>
             <button class="action-sheet-btn cancel" id="itemActionCancel">取消</button>
+        </div>
+    </div>
+
+    <!-- 长按分类/标签弹出的操作菜单 -->
+    <div class="action-sheet-overlay" id="catActionOverlay">
+        <div class="action-sheet">
+            <div class="action-sheet-title" id="catActionTitle">分类操作</div>
+            <button class="action-sheet-btn" id="catActionRename">✏️ 改名 / 改图标</button>
+            <button class="action-sheet-btn danger" id="catActionDelete">🗑️ 删除</button>
+            <button class="action-sheet-btn cancel" id="catActionCancel">取消</button>
+        </div>
+    </div>
+
+    <!-- 改名小弹窗（分类/标签通用） -->
+    <div class="modal-overlay" id="renameModalOverlay">
+        <div class="modal" id="renameModal" style="max-width:380px;">
+            <h3 id="renameTitle">✏️ 改名</h3>
+            <div class="form-group"><label id="renameLabel">名称</label><input type="text" id="renameInput" placeholder="输入新名称"></div>
+            <div class="form-group" id="renameEmojiGroup"><label>图标（可留空）</label><input type="text" id="renameEmoji" placeholder="例如：🍚"></div>
+            <div class="btn-row">
+                <button class="btn btn-outline btn-sm" onclick="closeRenameModal()">取消</button>
+                <button class="btn btn-primary btn-sm" id="renameConfirmBtn">💾 保存</button>
+            </div>
         </div>
     </div>
 
@@ -1272,10 +1306,16 @@
                 if (!bar) return;
                 let html = `<button class="cat-btn ${currentCat==='all'?'active':''}" data-cat="all">全部</button>`;
                 html += categories.map(c =>
-                    `<button class="cat-btn ${currentCat===c.id?'active':''}" data-cat="${escapeAttr(c.id)}" title="双击可改名/删除">${c.emoji||''} ${escapeHTML(c.label)}</button>`
+                    `<button class="cat-btn ${currentCat===c.id?'active':''}" data-cat="${escapeAttr(c.id)}" title="长按可改名/删除">${c.emoji||''} ${escapeHTML(c.label)}</button>`
                 ).join('');
                 html += `<button class="cat-btn cat-add" data-cat="__add" title="新增分类">＋</button>`;
                 bar.innerHTML = html;
+                // 为每个真实分类按钮绑定长按编辑（「全部」「＋」除外）
+                bar.querySelectorAll('.cat-btn').forEach(btn => {
+                    const cat = btn.getAttribute('data-cat');
+                    if (cat === 'all' || cat === '__add') return;
+                    attachLongPress(btn, () => openCatActions(cat));
+                });
             }
 
             async function loadCategoriesFromCloud() {
@@ -1324,42 +1364,186 @@
                 } catch (err) { handleSyncError(err); return false; }
             }
 
-            // 双击分类 → 改名 / 删除
-            async function editCategory(catId) {
+            // —— 分类长按操作 ——
+            let catActionTarget = null;
+            function openCatActions(catId) {
+                catActionTarget = catId;
+                tagActionTarget = null;
+                const c = categories.find(x => x.id === catId);
+                const t = $('#catActionTitle');
+                if (t) t.textContent = c ? `分类：${c.emoji||''} ${c.label}` : '分类操作';
+                $('#catActionOverlay').setAttribute('data-kind', 'cat');
+                $('#catActionOverlay').classList.add('open');
+            }
+            function closeCatTagActions() {
+                $('#catActionOverlay').classList.remove('open');
+                $('#catActionOverlay').removeAttribute('data-kind');
+                catActionTarget = null; tagActionTarget = null;
+            }
+
+            // 通用改名弹窗：传入初始值与确认回调
+            let renameConfirmHandler = null;
+            function openRenameModal({ title, label, value, emoji, showEmoji, onConfirm }) {
+                $('#renameTitle').textContent = title || '✏️ 改名';
+                $('#renameLabel').textContent = label || '名称';
+                $('#renameInput').value = value || '';
+                $('#renameEmoji').value = emoji || '';
+                $('#renameEmojiGroup').style.display = showEmoji ? 'block' : 'none';
+                renameConfirmHandler = onConfirm;
+                $('#renameModalOverlay').classList.add('open');
+                setTimeout(() => { try { $('#renameInput').focus(); } catch(e){} }, 100);
+            }
+            function closeRenameModal() { $('#renameModalOverlay').classList.remove('open'); renameConfirmHandler = null; }
+
+            // 分类改名/改图标
+            function renameCategory(catId) {
                 const idx = categories.findIndex(c => c.id === catId);
                 if (idx === -1) return;
                 const cur = categories[idx];
-                const input = prompt(`修改分类名称（留空则删除该分类）\n当前：${cur.label}`, cur.label);
-                if (input === null) return; // 取消
-                const val = input.trim();
-                if (!val) {
-                    // 删除分类
-                    if (!confirm(`确定删除分类「${cur.label}」？\n该分类下的菜品不会被删除，但会失去分类标记。`)) return;
-                    categories.splice(idx, 1);
-                    if (currentCat === catId) currentCat = 'all';
-                } else {
-                    // 可选：让用户顺便改个 emoji
-                    const emoji = prompt('分类图标（可留空）', cur.emoji || '');
-                    categories[idx] = { ...cur, label: val, emoji: (emoji||'').trim() };
-                }
-                renderCategories();
-                renderMenu(currentCat);
-                const ok = await saveCategoriesToCloud();
-                showToast(ok ? '✅ 分类已更新并同步' : '✅ 分类已更新（本地）');
+                openRenameModal({
+                    title: '✏️ 修改分类', label: '分类名称', value: cur.label, emoji: cur.emoji || '', showEmoji: true,
+                    onConfirm: async (val, emoji) => {
+                        if (!val) { showToast('⚠️ 名称不能为空'); return false; }
+                        if (categories.some((c,i) => i !== idx && (c.label === val))) { showToast('⚠️ 已有同名分类'); return false; }
+                        // 只改显示label与emoji，id保持不变 → 已归该类的菜品不受影响
+                        categories[idx] = { ...cur, label: val, emoji: (emoji||'').trim() };
+                        renderCategories(); renderMenu(currentCat);
+                        const ok = await saveCategoriesToCloud();
+                        showToast(ok ? '✅ 分类已更新并同步' : '✅ 分类已更新（本地）');
+                        return true;
+                    }
+                });
             }
 
-            async function addCategory() {
-                const name = prompt('新分类名称（例如：汤羹 / 夜宵）', '');
-                if (name === null) return;
-                const val = name.trim();
-                if (!val) return;
-                if (categories.find(c => c.id === val || c.label === val)) { showToast('⚠️ 已有同名分类'); return; }
-                const emoji = prompt('分类图标（可留空）', '🍽️');
-                categories.push({ id: val, label: val, emoji: (emoji||'').trim() });
-                renderCategories();
-                renderMenu(currentCat);
+            // 删除分类
+            async function deleteCategory(catId) {
+                const idx = categories.findIndex(c => c.id === catId);
+                if (idx === -1) return;
+                const cur = categories[idx];
+                if (!confirm(`确定删除分类「${cur.label}」？\n该分类下的菜品不会被删除，只是不再归到这个分类。`)) return;
+                categories.splice(idx, 1);
+                if (currentCat === catId) currentCat = 'all';
+                renderCategories(); renderMenu(currentCat);
                 const ok = await saveCategoriesToCloud();
-                showToast(ok ? '✅ 已新增分类并同步' : '✅ 已新增分类（本地）');
+                showToast(ok ? '✅ 分类已删除并同步' : '✅ 分类已删除（本地）');
+            }
+
+            function addCategory() {
+                openRenameModal({
+                    title: '➕ 新增分类', label: '分类名称', value: '', emoji: '🍽️', showEmoji: true,
+                    onConfirm: async (val, emoji) => {
+                        if (!val) { showToast('⚠️ 名称不能为空'); return false; }
+                        if (categories.find(c => c.id === val || c.label === val)) { showToast('⚠️ 已有同名分类'); return false; }
+                        categories.push({ id: val, label: val, emoji: (emoji||'').trim() });
+                        renderCategories(); renderMenu(currentCat);
+                        const ok = await saveCategoriesToCloud();
+                        showToast(ok ? '✅ 已新增分类并同步' : '✅ 已新增分类（本地）');
+                        return true;
+                    }
+                });
+            }
+
+            // —— 菜系/餐厅标签长按操作 ——
+            // 标签是从菜品的 cuisine/restaurant 字段聚合出来的，
+            // 改名 = 把所有该值的菜品改成新值；删除 = 把这些菜品的该字段清空。
+            let tagActionTarget = null;
+            function openTagActions(tag) {
+                tagActionTarget = tag;
+                catActionTarget = null;
+                const isHome = currentScene === 'home';
+                const t = $('#catActionTitle');
+                if (t) t.textContent = (isHome ? '菜系：' : '餐厅：') + tag;
+                // 复用同一个操作面板，但改写按钮文案与回调标记
+                $('#catActionOverlay').classList.add('open');
+                $('#catActionOverlay').setAttribute('data-kind', 'tag');
+            }
+
+            // 统计某标签下有多少道菜（用于提示）
+            function countByTag(tag) {
+                const key = currentScene === 'home' ? 'cuisine' : 'restaurant';
+                return getSceneMenu().filter(i => (i[key]||'') === tag).length;
+            }
+
+            // 把场景内所有 oldVal 的菜品的 cuisine/restaurant 改为 newVal（或清空）
+            async function applyTagChange(oldVal, newVal) {
+                const key = currentScene === 'home' ? 'cuisine' : 'restaurant';
+                const affected = getSceneMenu().filter(i => (i[key]||'') === oldVal);
+                if (!affected.length) return true;
+                let allOk = true;
+                for (const item of affected) {
+                    const isPreset = !!DEFAULT_MENU.find(d => d.id === item.id);
+                    // 构造该菜品的新数据（保留其它字段）
+                    const base = {
+                        name: item.name, desc: item.desc, cat: item.cat, emoji: item.emoji,
+                        scene: item.scene, sides: item.sides, price: item.price,
+                        cuisine: item.cuisine, restaurant: item.restaurant,
+                        image: item.image || null, custom: true, updatedAt: new Date().toISOString()
+                    };
+                    if (newVal === null) base[key] = undefined; else base[key] = newVal;
+
+                    if (isPreset) {
+                        base.id = 'ov_' + item.id;
+                        base.overrideOf = item.id;
+                        base.createdAt = item.createdAt || new Date().toISOString();
+                        const exIdx = customMenu.findIndex(m => m.overrideOf === item.id && !m.deletedPreset);
+                        if (exIdx !== -1) { base.__num = customMenu[exIdx].__num; customMenu[exIdx] = base; }
+                        else customMenu.push(base);
+                    } else {
+                        base.id = item.id;
+                        base.createdAt = item.createdAt || new Date().toISOString();
+                        const exIdx = customMenu.findIndex(m => m.id === item.id);
+                        if (exIdx !== -1) { base.__num = customMenu[exIdx].__num; customMenu[exIdx] = base; }
+                        else customMenu.push(base);
+                    }
+                    // 同步到云端
+                    try {
+                        if (base.__num) {
+                            await githubAPI(`${API_BASE}/${base.__num}`, { method:'PATCH', body: JSON.stringify({ body: JSON.stringify(stripRuntime(base)) }) });
+                        } else {
+                            const created = await githubAPI(API_BASE, { method:'POST', body: JSON.stringify({ title:`[menu] ${base.name}`, body: JSON.stringify(stripRuntime(base)), labels:[issueLabel('menu')] }) });
+                            if (created && created.number) base.__num = created.number; else allOk = false;
+                        }
+                    } catch (e) { allOk = false; }
+                }
+                saveCache();
+                return allOk;
+            }
+
+            function renameTag(tag) {
+                const isHome = currentScene === 'home';
+                const n = countByTag(tag);
+                openRenameModal({
+                    title: isHome ? '✏️ 修改菜系' : '✏️ 修改餐厅',
+                    label: (isHome ? '菜系名称' : '餐厅名称') + `（影响 ${n} 道菜）`,
+                    value: tag, emoji: '', showEmoji: false,
+                    onConfirm: async (val) => {
+                        if (!val) { showToast('⚠️ 名称不能为空'); return false; }
+                        if (val === tag) { return true; }
+                        isSyncing = true;
+                        setSyncStatus('syncing');
+                        if (currentTag === tag) currentTag = val;
+                        const ok = await applyTagChange(tag, val);
+                        isSyncing = false;
+                        setSyncStatus(ok ? 'synced' : 'error');
+                        renderMenu(currentCat);
+                        showToast(ok ? `✅ 已更新为「${val}」并同步` : '⚠️ 部分同步失败，请重试');
+                        return true;
+                    }
+                });
+            }
+
+            async function deleteTag(tag) {
+                const isHome = currentScene === 'home';
+                const n = countByTag(tag);
+                if (!confirm(`确定删除${isHome?'菜系':'餐厅'}「${tag}」？\n这 ${n} 道菜不会被删除，只是不再带这个${isHome?'菜系':'餐厅'}标记。`)) return;
+                isSyncing = true;
+                setSyncStatus('syncing');
+                if (currentTag === tag) currentTag = 'all';
+                const ok = await applyTagChange(tag, null);
+                isSyncing = false;
+                setSyncStatus(ok ? 'synced' : 'error');
+                renderMenu(currentCat);
+                showToast(ok ? '✅ 标记已清除并同步' : '⚠️ 部分同步失败，请重试');
             }
 
             // 填充弹窗里的分类下拉
@@ -1374,6 +1558,7 @@
             async function init() {
                 createHearts();
                 setupEventListeners();
+                registerNotifySW();
                 // 先用本地缓存秒开界面，无需等待网络
                 loadCache();
                 loadCartLocally();
@@ -1677,13 +1862,18 @@
                 const bar = $('#menuTagBar');
                 if (!bar) return;
                 const tags = getSceneTags();
-                const key = currentScene === 'home' ? 'cuisine' : 'restaurant';
                 const allLabel = currentScene === 'home' ? '全部菜系' : '全部餐厅';
                 let html = `<button class="tag-btn ${currentTag==='all'?'active':''}" data-tag="all">${allLabel}</button>`;
                 html += tags.map(t =>
-                    `<button class="tag-btn ${currentTag===t?'active':''}" data-tag="${escapeAttr(t)}">${currentScene==='home'?'🍽 ':'🏪 '}${escapeHTML(t)}</button>`
+                    `<button class="tag-btn ${currentTag===t?'active':''}" data-tag="${escapeAttr(t)}" title="长按可改名/删除">${currentScene==='home'?'🍽 ':'🏪 '}${escapeHTML(t)}</button>`
                 ).join('');
                 bar.innerHTML = html;
+                // 为每个标签绑定长按编辑（「全部」除外）
+                bar.querySelectorAll('.tag-btn').forEach(btn => {
+                    const tag = btn.getAttribute('data-tag');
+                    if (tag === 'all') return;
+                    attachLongPress(btn, () => openTagActions(tag));
+                });
             }
 
             function switchScene(scene) {
@@ -1793,6 +1983,33 @@
             }
 
             // ============ 长按操作菜单 ============
+            // 通用长按绑定：长按触发 onLong；普通短按仍按钮原有 click 逻辑走
+            function attachLongPress(el, onLong) {
+                let timer = null;
+                let fired = false;
+                const LONG_MS = 500;
+                const start = (e) => {
+                    fired = false;
+                    timer = setTimeout(() => {
+                        fired = true;
+                        if (navigator.vibrate) { try { navigator.vibrate(15); } catch(_){} }
+                        onLong();
+                    }, LONG_MS);
+                };
+                const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+                el.addEventListener('touchstart', start, { passive: true });
+                el.addEventListener('touchend', cancel);
+                el.addEventListener('touchmove', cancel, { passive: true });
+                el.addEventListener('mousedown', start);
+                el.addEventListener('mouseup', cancel);
+                el.addEventListener('mouseleave', cancel);
+                el.addEventListener('contextmenu', (e) => { e.preventDefault(); cancel(); onLong(); });
+                // 若刚长按触发，吞掉随后的 click，避免误切换筛选
+                el.addEventListener('click', (e) => {
+                    if (fired) { fired = false; e.preventDefault(); e.stopPropagation(); }
+                }, true);
+            }
+
             let actionTargetItem = null;
             function openItemActions(item) {
                 actionTargetItem = item;
@@ -2144,15 +2361,112 @@
             }
 
             // 新订单提醒弹窗
+            // ============ 手机系统通知 ============
+            // 说明：网页通知会在浏览器/PWA运行时弹出系统级横幅；
+            // 若想在App完全关闭时也收到，需要把页面“添加到主屏幕”当作App打开。
+            // 注册一个极简 service worker（用 Blob 内联，无需额外文件），
+            // 让通知点击能聚焦回页面、并在后台标签页时也能弹系统横幅。
+            function registerNotifySW() {
+                if (!('serviceWorker' in navigator)) return;
+                try {
+                    const swCode = `
+                        self.addEventListener('install', e => self.skipWaiting());
+                        self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+                        self.addEventListener('notificationclick', function(e) {
+                            e.notification.close();
+                            e.waitUntil(
+                                self.clients.matchAll({ type:'window', includeUncontrolled:true }).then(function(list){
+                                    for (const c of list) { if ('focus' in c) return c.focus(); }
+                                    if (self.clients.openWindow) return self.clients.openWindow('./');
+                                })
+                            );
+                        });
+                    `;
+                    const blob = new Blob([swCode], { type: 'text/javascript' });
+                    const url = URL.createObjectURL(blob);
+                    navigator.serviceWorker.register(url).catch(() => {/* 忽略：不影响前台通知 */});
+                } catch(e) { /* 某些浏览器禁止 blob SW，忽略即可，前台通知仍可用 */ }
+            }
+
+            function notifyPermissionState() {
+                if (!('Notification' in window)) return 'unsupported';
+                return Notification.permission; // 'granted' | 'denied' | 'default'
+            }
+            function refreshNotifyFab() {
+                const fab = $('#notifyFab');
+                if (!fab) return;
+                const s = notifyPermissionState();
+                fab.classList.toggle('enabled', s === 'granted');
+                fab.classList.toggle('denied', s === 'denied');
+                fab.textContent = s === 'granted' ? '🔔' : (s === 'denied' ? '🔕' : '🔔');
+                fab.title = s === 'granted' ? '手机通知已开启（点此测试）'
+                    : s === 'denied' ? '通知被拒绝，请在系统设置里允许'
+                    : '点此开启手机通知提醒';
+            }
+            async function ensureNotifyPermission(askNow) {
+                if (!('Notification' in window)) return false;
+                if (Notification.permission === 'granted') return true;
+                if (Notification.permission === 'denied') return false;
+                if (askNow) {
+                    try { const p = await Notification.requestPermission(); return p === 'granted'; }
+                    catch(e) { return false; }
+                }
+                return false;
+            }
+            // 发一条系统通知
+            function fireSystemNotification(title, body) {
+                try {
+                    if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+                    // 有 service worker 时优先用它发（部分系统后台横幅更稳定）
+                    if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+                        navigator.serviceWorker.ready.then(reg => {
+                            try {
+                                reg.showNotification(title, {
+                                    body,
+                                    icon: NOTIFY_ICON,
+                                    badge: NOTIFY_ICON,
+                                    vibrate: [40, 60, 40],
+                                    tag: 'sweet-order',
+                                    renotify: true
+                                });
+                            } catch(e) {
+                                new Notification(title, { body, icon: NOTIFY_ICON });
+                            }
+                        }).catch(() => { try { new Notification(title, { body, icon: NOTIFY_ICON }); } catch(e){} });
+                    } else {
+                        const n = new Notification(title, { body, icon: NOTIFY_ICON });
+                        n.onclick = () => { try { window.focus(); } catch(e){} switchPage('orders'); n.close(); };
+                    }
+                    return true;
+                } catch(e) { return false; }
+            }
+            // 一个粉色爱心图标作为通知图标（纯 SVG 路径，避免 btoa 处理 emoji 报错）
+            const NOTIFY_ICON = 'data:image/svg+xml;base64,' + btoa(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">' +
+                '<rect width="96" height="96" rx="20" fill="#ffe0ec"/>' +
+                '<path d="M48 74C26 58 16 48 16 36c0-9 7-16 16-16 6 0 11 3 16 9 5-6 10-9 16-9 9 0 16 7 16 16 0 12-10 22-32 38z" fill="#ff6b9d"/>' +
+                '</svg>'
+            );
+
             function showOrderNotice(o) {
                 const items = Array.isArray(o.items) ? o.items : [];
                 const preview = items.slice(0, 4).map(it => `${it.emoji||'🍽️'} ${escapeHTML(it.name||'')}×${it.qty||1}`).join('、');
                 const more = items.length > 4 ? ` 等${items.length}项` : '';
                 const totalStr = (o.total && o.total > 0) ? `合计 ¥${Number(o.total).toFixed(2)}` : `共 ${items.reduce((s,i)=>s+(i.qty||1),0)} 份`;
+
+                // 1) 先尝试发系统通知（手机通知栏）
+                const plainPreview = items.slice(0,4).map(it => `${it.name||''}×${it.qty||1}`).join('、') + more;
+                const sysOk = fireSystemNotification(
+                    `💗 ${o.by||'对方'} 提交了订单`,
+                    `${plainPreview}　${totalStr}`
+                );
+
+                // 2) 同时在网页内也给一个提示（即使系统通知成功，回到App也能看到）
                 $('#orderNoticeBody').innerHTML = `
                     <p style="font-weight:700;color:var(--pink-dark);margin-bottom:6px;">💗 ${escapeHTML(o.by||'对方')} 刚提交了一个订单！</p>
                     <p style="font-size:0.9rem;color:var(--text);line-height:1.6;">${preview}${more}</p>
                     <p style="font-size:0.95rem;font-weight:700;color:#e0555f;margin-top:8px;">${totalStr}</p>
+                    ${sysOk ? '' : '<p style="font-size:0.75rem;color:var(--text-light);margin-top:8px;">💡 想收到手机通知栏提醒？点右下角同步状态旁的🔔开启</p>'}
                 `;
                 $('#orderNoticeOverlay').classList.add('open');
                 if (navigator.vibrate) { try { navigator.vibrate([20,40,20]); } catch(e){} }
@@ -2236,9 +2550,37 @@
                 $('#lightbox').addEventListener('click', function(e) { if (e.target === $('#lightbox') || e.target === $('#lightboxImg')) closeLightbox(); });
                 const syncStatusEl = $('#syncStatus');
                 if (syncStatusEl) { syncStatusEl.style.cursor = 'pointer'; syncStatusEl.title = '点击设置 / 更换 Token'; syncStatusEl.addEventListener('click', () => openTokenModal()); }
+                // 🔔 通知开关
+                const notifyFab = $('#notifyFab');
+                if (notifyFab) {
+                    refreshNotifyFab();
+                    notifyFab.addEventListener('click', async () => {
+                        const state = notifyPermissionState();
+                        if (state === 'unsupported') { showToast('⚠️ 此浏览器不支持系统通知'); return; }
+                        if (state === 'granted') {
+                            // 已开启 → 发一条测试通知
+                            const ok = fireSystemNotification('💕 通知已开启', '对方提交订单时，你会在这里收到提醒~');
+                            showToast(ok ? '🔔 已发送一条测试通知' : '🔔 通知已开启');
+                            return;
+                        }
+                        if (state === 'denied') {
+                            showToast('🔕 通知被系统拒绝了，请到手机/浏览器设置里手动允许');
+                            return;
+                        }
+                        // default → 请求授权（必须由这次点击触发）
+                        const granted = await ensureNotifyPermission(true);
+                        refreshNotifyFab();
+                        if (granted) {
+                            fireSystemNotification('💕 通知已开启', '以后对方提交订单，会直接弹到你手机通知栏~');
+                            showToast('🔔 手机通知已开启！');
+                        } else {
+                            showToast('🔕 未开启通知');
+                        }
+                    });
+                }
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
-                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions(); closeOrderNotice();
+                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions(); closeOrderNotice(); closeCatTagActions(); closeRenameModal();
                         $('#navLinks').classList.remove('open');
                     }
                 });
@@ -2250,14 +2592,6 @@
                     $$('#menuCategories .cat-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     renderMenu(cat);
-                });
-                // 双击分类 → 改名/删除（「全部」「＋」除外）
-                $('#menuCategories').addEventListener('dblclick', function(e) {
-                    const btn = e.target.closest('.cat-btn');
-                    if (!btn) return;
-                    const cat = btn.getAttribute('data-cat');
-                    if (cat === 'all' || cat === '__add') return;
-                    editCategory(cat);
                 });
                 // 场景切换：暖心餐 / 寻味记
                 $$('.scene-btn').forEach(btn => {
@@ -2305,6 +2639,29 @@
                         showToast('菜品已删除');
                     }
                 });
+                // 分类/标签 长按操作菜单（共用一套面板，按 data-kind 区分）
+                $('#catActionOverlay').addEventListener('click', function(e) { if (e.target === this) closeCatTagActions(); });
+                $('#catActionCancel').addEventListener('click', closeCatTagActions);
+                $('#catActionRename').addEventListener('click', function() {
+                    const kind = $('#catActionOverlay').getAttribute('data-kind');
+                    if (kind === 'tag') { const t = tagActionTarget; closeCatTagActions(); if (t) renameTag(t); }
+                    else { const c = catActionTarget; closeCatTagActions(); if (c) renameCategory(c); }
+                });
+                $('#catActionDelete').addEventListener('click', function() {
+                    const kind = $('#catActionOverlay').getAttribute('data-kind');
+                    if (kind === 'tag') { const t = tagActionTarget; closeCatTagActions(); if (t) deleteTag(t); }
+                    else { const c = catActionTarget; closeCatTagActions(); if (c) deleteCategory(c); }
+                });
+                // 改名弹窗
+                $('#renameModalOverlay').addEventListener('click', function(e) { if (e.target === this) closeRenameModal(); });
+                $('#renameConfirmBtn').addEventListener('click', async function() {
+                    if (!renameConfirmHandler) { closeRenameModal(); return; }
+                    const val = ($('#renameInput').value || '').trim();
+                    const emoji = ($('#renameEmoji').value || '').trim();
+                    const keep = await renameConfirmHandler(val, emoji);
+                    if (keep !== false) closeRenameModal();
+                });
+                $('#renameInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') $('#renameConfirmBtn').click(); });
                 // 订单记录刷新
                 const ordersRefresh = $('#ordersRefreshBtn');
                 if (ordersRefresh) ordersRefresh.addEventListener('click', async function() {
@@ -2671,7 +3028,7 @@
             window.closeOrderNotice = closeOrderNotice;
             window.viewOrdersFromNotice = viewOrdersFromNotice;
             window.addCategory = addCategory;
-            window.editCategory = editCategory;
+            window.closeRenameModal = closeRenameModal;
 
             init();
             console.log('💕 甜蜜小窝 - GitHub同步版已就绪！');
