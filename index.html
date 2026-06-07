@@ -283,6 +283,56 @@
         }
         .item-tag.cuisine { background: var(--pink-light); color: var(--pink-dark); border-color: #ffd0e0; }
 
+        /* 长按操作菜单 */
+        .action-sheet-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 270;
+            display: flex; align-items: flex-end; justify-content: center;
+            opacity: 0; pointer-events: none; transition: opacity 0.25s;
+        }
+        .action-sheet-overlay.open { opacity: 1; pointer-events: all; }
+        .action-sheet {
+            background: var(--white); border-radius: 22px 22px 0 0; width: 100%; max-width: 460px;
+            padding: 10px 14px calc(14px + env(safe-area-inset-bottom)); box-shadow: 0 -10px 40px rgba(0,0,0,0.2);
+            transform: translateY(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+        }
+        .action-sheet-overlay.open .action-sheet { transform: translateY(0); }
+        .action-sheet-title { text-align: center; font-size: 0.85rem; color: var(--text-light); padding: 10px 0 6px; font-weight: 600; }
+        .action-sheet-btn {
+            width: 100%; border: none; background: var(--bg); border-radius: var(--radius-sm);
+            padding: 15px; font-size: 1rem; font-weight: 600; color: var(--text); cursor: pointer;
+            margin-top: 8px; transition: var(--transition); font-family: inherit;
+        }
+        .action-sheet-btn:hover { background: var(--pink-light); }
+        .action-sheet-btn.danger { color: #e0555f; }
+        .action-sheet-btn.danger:hover { background: #fff0f0; }
+        .action-sheet-btn.cancel { background: transparent; color: var(--text-light); margin-top: 4px; }
+        @media (min-width: 769px) {
+            .action-sheet-overlay { align-items: center; }
+            .action-sheet { border-radius: 22px; }
+        }
+
+        /* 订单记录 */
+        .order-card {
+            background: var(--white); border-radius: var(--radius); padding: 16px 18px;
+            box-shadow: var(--shadow); margin-bottom: 14px; border-left: 4px solid var(--gold);
+            animation: fadeSlideIn 0.4s ease;
+        }
+        .order-card .order-head {
+            display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;
+            margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed #eee;
+        }
+        .order-card .order-id { font-weight: 700; font-size: 0.92rem; color: var(--pink-dark); }
+        .order-card .order-by {
+            font-size: 0.72rem; background: var(--pink-light); color: var(--pink-dark);
+            padding: 2px 10px; border-radius: 12px; font-weight: 600;
+        }
+        .order-card .order-time { font-size: 0.75rem; color: var(--text-light); width: 100%; }
+        .order-card .order-line { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; padding: 3px 0; color: var(--text); }
+        .order-card .order-line .ol-emoji { font-size: 1.1rem; }
+        .order-card .order-line .ol-qty { color: var(--text-light); margin-left: auto; }
+        .order-card .order-total { text-align: right; font-weight: 700; color: #e0555f; margin-top: 8px; font-size: 1rem; }
+        .order-card .order-reorder { margin-top: 10px; }
+
         /* 菜品详情子页 */
         .detail-card {
             background: var(--white); border-radius: var(--radius); overflow: hidden;
@@ -551,6 +601,7 @@
             <li><button data-page="home" class="active" onclick="switchPage('home')">🏠 首页</button></li>
             <li><button data-page="memories" onclick="switchPage('memories')">📝 回忆墙</button></li>
             <li><button data-page="order" onclick="switchPage('order')">🍽️ 点餐</button></li>
+            <li><button data-page="orders" onclick="switchPage('orders')">📜 订单记录</button></li>
             <li><button class="cart-badge" onclick="openCart()">🛒 购物车<span class="cart-count" id="cartCountBadge" style="display:none;">0</span></button></li>
         </ul>
     </nav>
@@ -647,12 +698,28 @@
             <button class="btn btn-outline btn-sm" onclick="backFromDetail()" style="margin-bottom:14px;">← 返回菜单</button>
             <div id="detailContent"></div>
         </section>
+
+        <!-- 📜 订单记录页面 -->
+        <section class="page" id="page-orders">
+            <div class="section-header">
+                <h2 class="section-title">📜 订单记录</h2>
+                <button class="btn btn-outline btn-sm" id="ordersRefreshBtn">🔄 刷新</button>
+            </div>
+            <p style="font-size:0.82rem;color:var(--text-light);margin:-6px 0 14px;">你和 TA 提交过的订单都会出现在这里，双方同步可见 💕</p>
+            <div id="ordersList">
+                <div class="empty-state" id="ordersEmpty">
+                    <div class="icon">🧾</div>
+                    <p>还没有订单记录~<br>去点餐页选好后「提交订单」吧！</p>
+                </div>
+            </div>
+        </section>
     </main>
 
     <nav class="bottom-nav" id="bottomNav">
         <button data-page="home" class="active" onclick="switchPage('home')"><span class="nav-icon">🏠</span>首页</button>
         <button data-page="memories" onclick="switchPage('memories')"><span class="nav-icon">📝</span>回忆</button>
         <button data-page="order" onclick="switchPage('order')"><span class="nav-icon">🍽️</span>点餐</button>
+        <button data-page="orders" onclick="switchPage('orders')"><span class="nav-icon">📜</span>订单</button>
         <button onclick="openCart()" style="position:relative;">
             <span class="nav-icon">🛒</span>购物车
             <span class="cart-count-mobile" id="cartCountMobile" style="display:none;">0</span>
@@ -735,10 +802,20 @@
         </div>
     </div>
 
-    <!-- 🍽️ 添加菜品弹窗 -->
+    <!-- 长按菜品弹出的操作菜单 -->
+    <div class="action-sheet-overlay" id="itemActionOverlay">
+        <div class="action-sheet" id="itemActionSheet">
+            <div class="action-sheet-title" id="itemActionTitle">菜品操作</div>
+            <button class="action-sheet-btn" id="itemActionEdit">✏️ 修改这道菜</button>
+            <button class="action-sheet-btn danger" id="itemActionDelete">🗑️ 删除这道菜</button>
+            <button class="action-sheet-btn cancel" id="itemActionCancel">取消</button>
+        </div>
+    </div>
+
+    <!-- 🍽️ 添加/编辑菜品弹窗 -->
     <div class="modal-overlay" id="menuItemModalOverlay">
         <div class="modal" id="menuItemModal">
-            <h3>🍽️ 添加新菜品</h3>
+            <h3 id="miModalTitle">🍽️ 添加新菜品</h3>
             <div class="form-group"><label>名称</label><input type="text" id="miName" placeholder="例如：芝士焗饭"></div>
             <div class="form-group"><label>用餐场景</label>
                 <select id="miScene">
@@ -752,7 +829,6 @@
             </div>
             <!-- 寻味记：餐厅名 -->
             <div class="form-group" id="miRestaurantGroup" style="display:none;"><label>餐厅名称</label><input type="text" id="miRestaurant" placeholder="例如：海底捞 / 楼下那家面馆"></div>
-            <div class="form-group"><label>价格（¥，自制可填 0）</label><input type="number" id="miPrice" min="0" step="1" placeholder="例如：38"></div>
             <div class="form-group"><label>简介（可选）</label><input type="text" id="miDesc" placeholder="一句话描述"></div>
             <div class="form-group"><label>主要配菜（可选，用逗号分隔）</label><input type="text" id="miSides" placeholder="例如：牛腩, 土豆, 番茄（常规调料不用填）"></div>
             <div class="form-group"><label>分类</label>
@@ -764,8 +840,8 @@
                 </select>
             </div>
             <div class="form-group"><label>表情图标（可选，不上传图片时显示）</label><input type="text" id="miEmoji" placeholder="例如：🍛"></div>
-            <div class="form-group"><label>🖼️ 图片URL（可选）</label><input type="text" id="miImageUrl" placeholder="输入图片链接"></div>
-            <div class="form-group"><label>📤 上传图片（可选，可拍照记录）</label><input type="file" id="miImageFile" accept="image/*"></div>
+            <div class="form-group"><label id="miImageLabel">📤 上传图片（可选，可拍照记录）</label><input type="file" id="miImageFile" accept="image/*"></div>
+            <p id="miImageHint" style="font-size:0.75rem;color:var(--text-light);margin:-8px 0 12px;line-height:1.5;"></p>
             <img class="image-preview" id="miImagePreview">
             <div class="btn-row">
                 <button class="btn btn-outline btn-sm" onclick="closeMenuItemModal()">取消</button>
@@ -833,6 +909,7 @@
             let currentTag = 'all';      // 当前选中的菜系/餐厅标签
             let menuSearch = '';         // 菜单搜索关键词
             let detailReturnPage = 'order'; // 详情页返回目标
+            let orders = [];             // 订单记录（双方共享）
 
             // ============ DOM ============
             const $ = (sel) => document.querySelector(sel);
@@ -1180,6 +1257,7 @@
                 // 再拉取云端最新数据并刷新
                 await loadCloudData();
                 await pullCartFromCloud();
+                await loadOrders();
                 renderMemories();
                 renderMenu(currentCat);
                 updateDaysCounter();
@@ -1192,6 +1270,7 @@
                 setInterval(async () => {
                     if (!isSyncing && GITHUB_TOKEN) {
                         await loadCloudData();
+                        await loadOrders();
                         renderMemories();
                         renderMenu(currentCat);
                         updateDaysCounter();
@@ -1241,6 +1320,7 @@
                 if (page === 'order') renderMenu();
                 if (page === 'memories') renderMemories();
                 if (page === 'home') updateDaysCounter();
+                if (page === 'orders') { renderOrders(); if (GITHUB_TOKEN && !isSyncing) loadOrders(); }
             }
 
             function updateDaysCounter() {
@@ -1425,7 +1505,23 @@
                 $('#lightbox').classList.remove('open');
             }
 
-            function getAllMenu() { return DEFAULT_MENU.concat(customMenu); }
+            // 合并菜单：预设 + 自定义。
+            // 自定义项里 overrideOf 指向某预设 id 时，表示对该预设的「修改」；
+            // deletedPreset=true 表示该预设被删除（隐藏）。
+            function getAllMenu() {
+                const overrides = {};
+                const deleted = {};
+                const pureCustom = [];
+                customMenu.forEach(m => {
+                    if (m.deletedPreset && m.overrideOf) { deleted[m.overrideOf] = true; }
+                    else if (m.overrideOf) { overrides[m.overrideOf] = m; }
+                    else { pureCustom.push(m); }
+                });
+                const presets = DEFAULT_MENU
+                    .filter(d => !deleted[d.id])
+                    .map(d => overrides[d.id] ? { ...d, ...overrides[d.id], id: d.id, custom: true, overrideOf: d.id } : d);
+                return presets.concat(pureCustom);
+            }
 
             // 当前场景下的所有菜品（自定义菜品若没标场景，默认归到暖心餐）
             function getSceneMenu() {
@@ -1496,7 +1592,6 @@
                 list.forEach(item => {
                     const inCart = cart.find(c => c.id === item.id);
                     const qty = inCart ? inCart.qty : 0;
-                    const isCustom = item.custom === true;
                     const card = document.createElement('div');
                     card.className = 'menu-item';
                     const visual = item.image
@@ -1508,7 +1603,6 @@
                         : '';
                     const priceHtml = (item.price && item.price > 0) ? `¥${item.price}` : '自制';
                     card.innerHTML = `
-                        ${isCustom ? `<button class="delete-item" title="删除菜品" data-id="${item.id}">🗑️</button>` : ''}
                         ${visual}
                         <div class="item-name">${escapeHTML(item.name)}</div>
                         ${tagHtml}
@@ -1524,20 +1618,57 @@
                         e.stopPropagation();
                         addToCart(item);
                     });
-                    const delBtn = card.querySelector('.delete-item');
-                    if (delBtn) {
-                        delBtn.addEventListener('click', async function(e) {
-                            e.stopPropagation();
-                            if (confirm('确定删除这个菜品？')) {
-                                await deleteMenuItem(item);
-                                showToast('菜品已删除');
-                            }
-                        });
-                    }
-                    // 点图片 / 文字 → 进入详情子页
-                    card.addEventListener('click', () => openDetail(item));
+                    // 点图片 / 文字 → 进入详情子页；长按 → 弹出修改/删除
+                    attachCardInteractions(card, item);
                     grid.appendChild(card);
                 });
+            }
+
+            // 卡片交互：短按进详情，长按（600ms）弹出操作菜单
+            function attachCardInteractions(card, item) {
+                let pressTimer = null;
+                let longPressed = false;
+                const LONG_MS = 550;
+
+                const start = () => {
+                    longPressed = false;
+                    pressTimer = setTimeout(() => {
+                        longPressed = true;
+                        if (navigator.vibrate) { try { navigator.vibrate(15); } catch(e){} }
+                        openItemActions(item);
+                    }, LONG_MS);
+                };
+                const cancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+
+                // 触摸
+                card.addEventListener('touchstart', start, { passive: true });
+                card.addEventListener('touchend', cancel);
+                card.addEventListener('touchmove', cancel, { passive: true });
+                // 鼠标（桌面端长按也可用）
+                card.addEventListener('mousedown', start);
+                card.addEventListener('mouseup', cancel);
+                card.addEventListener('mouseleave', cancel);
+                // 右键也直接弹出操作菜单
+                card.addEventListener('contextmenu', (e) => { e.preventDefault(); openItemActions(item); });
+
+                // 点击：长按刚触发过就不再进详情
+                card.addEventListener('click', (e) => {
+                    if (longPressed) { longPressed = false; e.preventDefault(); e.stopPropagation(); return; }
+                    openDetail(item);
+                });
+            }
+
+            // ============ 长按操作菜单 ============
+            let actionTargetItem = null;
+            function openItemActions(item) {
+                actionTargetItem = item;
+                const title = $('#itemActionTitle');
+                if (title) title.textContent = item.name || '菜品操作';
+                $('#itemActionOverlay').classList.add('open');
+            }
+            function closeItemActions() {
+                $('#itemActionOverlay').classList.remove('open');
+                actionTargetItem = null;
             }
 
             // ============ 菜品详情子页 ============
@@ -1746,6 +1877,9 @@
                 };
                 const ok = await createIssue('order', order);
                 if (!ok) { showToast('⚠️ 下单失败，请检查 Token 与网络'); return; }
+                // 本地立即加入订单记录（乐观更新）
+                orders.unshift(order);
+                renderOrders();
                 cart = [];
                 saveCartLocally();
                 updateCartUI();
@@ -1755,6 +1889,85 @@
                 closeCart();
                 showToast('🎉 下单成功！订单已记录');
                 await clearCartInCloud(); // 下单后同步清空双方购物车
+                // 后台拉一次，拿到带编号的权威订单列表
+                loadOrders();
+            }
+
+            // ============ 订单记录（双方共享） ============
+            async function loadOrders() {
+                if (!GITHUB_TOKEN) return;
+                try {
+                    const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
+                    if (!Array.isArray(issues)) return;
+                    const list = issues.map(iss => {
+                        try { const d = JSON.parse(iss.body); d.__num = iss.number; return d; }
+                        catch(e) { return null; }
+                    }).filter(Boolean);
+                    // 按下单时间倒序（最新在最前）
+                    list.sort((a,b) => new Date(b.time||0) - new Date(a.time||0));
+                    orders = list;
+                    renderOrders();
+                } catch (err) {
+                    console.warn('加载订单失败:', err);
+                }
+            }
+
+            function renderOrders() {
+                const wrap = $('#ordersList');
+                const empty = $('#ordersEmpty');
+                if (!wrap) return;
+                wrap.querySelectorAll('.order-card').forEach(c => c.remove());
+                if (!orders.length) {
+                    if (empty) empty.style.display = 'block';
+                    return;
+                }
+                if (empty) empty.style.display = 'none';
+                const me = getDeviceName();
+                orders.forEach(o => {
+                    const card = document.createElement('div');
+                    card.className = 'order-card';
+                    const items = Array.isArray(o.items) ? o.items : [];
+                    const lines = items.map(it => `
+                        <div class="order-line">
+                            <span class="ol-emoji">${it.emoji || '🍽️'}</span>
+                            <span>${escapeHTML(it.name || '')}</span>
+                            <span class="ol-qty">×${it.qty || 1}${(it.price && it.price>0) ? ` · ¥${(it.price*(it.qty||1)).toFixed(0)}` : ''}</span>
+                        </div>
+                    `).join('');
+                    const t = o.time ? new Date(o.time) : null;
+                    const timeStr = t ? `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}` : '';
+                    const whoLabel = o.by ? (o.by === me ? `我（${escapeHTML(o.by)}）` : escapeHTML(o.by)) : '匿名';
+                    const totalStr = (o.total && o.total > 0) ? `合计 ¥${Number(o.total).toFixed(2)}` : `共 ${items.reduce((s,i)=>s+(i.qty||1),0)} 份`;
+                    card.innerHTML = `
+                        <div class="order-head">
+                            <span class="order-id">🧾 ${escapeHTML(o.orderId || '')}</span>
+                            <span class="order-by">👤 ${whoLabel}</span>
+                            <span class="order-time">🕒 ${timeStr}</span>
+                        </div>
+                        ${lines}
+                        <div class="order-total">${totalStr}</div>
+                        <button class="btn btn-outline btn-sm order-reorder">🔁 再来一单</button>
+                    `;
+                    card.querySelector('.order-reorder').addEventListener('click', () => reorder(o));
+                    wrap.appendChild(card);
+                });
+            }
+
+            // 把某条历史订单的菜品重新加入购物车
+            function reorder(o) {
+                const items = Array.isArray(o.items) ? o.items : [];
+                if (!items.length) return;
+                items.forEach(it => {
+                    const existing = cart.find(c => c.id === it.id);
+                    if (existing) existing.qty += (it.qty || 1);
+                    else cart.push({ id: it.id, name: it.name, price: it.price, emoji: it.emoji, qty: it.qty || 1 });
+                });
+                saveCartLocally();
+                updateCartUI();
+                renderMenu(currentCat);
+                scheduleCartPush();
+                showToast('🛒 已重新加入购物车');
+                openCart();
             }
 
             function randomPick() {
@@ -1789,7 +2002,7 @@
                 if (syncStatusEl) { syncStatusEl.style.cursor = 'pointer'; syncStatusEl.title = '点击设置 / 更换 Token'; syncStatusEl.addEventListener('click', () => openTokenModal()); }
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
-                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal();
+                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions();
                         $('#navLinks').classList.remove('open');
                     }
                 });
@@ -1831,6 +2044,30 @@
                 if (miFile) miFile.addEventListener('change', function() { if (this.files[0]) handleMenuImageUpload(this.files[0]); });
                 const miScene = $('#miScene');
                 if (miScene) miScene.addEventListener('change', updateMenuModalSceneFields);
+                // 长按操作菜单
+                $('#itemActionOverlay').addEventListener('click', function(e) { if (e.target === this) closeItemActions(); });
+                $('#itemActionCancel').addEventListener('click', closeItemActions);
+                $('#itemActionEdit').addEventListener('click', function() {
+                    const it = actionTargetItem;
+                    closeItemActions();
+                    if (it) openMenuItemModal(it);
+                });
+                $('#itemActionDelete').addEventListener('click', async function() {
+                    const it = actionTargetItem;
+                    closeItemActions();
+                    if (it && confirm(`确定删除「${it.name}」？\n（删除会同步到对方那边）`)) {
+                        await deleteMenuItem(it);
+                        showToast('菜品已删除');
+                    }
+                });
+                // 订单记录刷新
+                const ordersRefresh = $('#ordersRefreshBtn');
+                if (ordersRefresh) ordersRefresh.addEventListener('click', async function() {
+                    if (!GITHUB_TOKEN) { showToast('⚠️ 未连接同步'); return; }
+                    showToast('🔄 正在刷新订单...');
+                    await loadOrders();
+                    showToast('✅ 订单已刷新');
+                });
                 // 回忆按月筛选
                 const monthFilter = $('#memMonthFilter');
                 const filterClear = $('#memFilterClear');
@@ -1911,95 +2148,226 @@
                 };
                 reader.readAsDataURL(file);
             }
-            function openMenuItemModal() {
-                $('#miName').value = '';
-                $('#miPrice').value = '';
-                $('#miDesc').value = '';
-                $('#miSides').value = '';
-                $('#miCat').value = '主食';
-                $('#miEmoji').value = '';
-                $('#miImageUrl').value = '';
-                $('#miImageFile').value = '';
-                $('#miRestaurant').value = '';
-                // 默认场景跟随当前正在浏览的场景
-                $('#miScene').value = currentScene;
-                // 填充菜系下拉
+            let editingItemId = null; // 非空表示当前在编辑某个菜品
+
+            function openMenuItemModal(editItem = null) {
+                editingItemId = editItem ? editItem.id : null;
                 const cuiSel = $('#miCuisine');
                 if (cuiSel && !cuiSel.options.length) {
                     cuiSel.innerHTML = CUISINE_OPTIONS.map(c => `<option value="${c}">${c}</option>`).join('');
                 }
+                if (editItem) {
+                    $('#miModalTitle').textContent = '✏️ 修改菜品';
+                    $('#miName').value = editItem.name || '';
+                    $('#miScene').value = editItem.scene || 'home';
+                    $('#miCuisine').value = editItem.cuisine || CUISINE_OPTIONS[0];
+                    $('#miRestaurant').value = editItem.restaurant || '';
+                    $('#miDesc').value = editItem.desc || '';
+                    $('#miSides').value = Array.isArray(editItem.sides) ? editItem.sides.join('、') : '';
+                    $('#miCat').value = editItem.cat || '主食';
+                    $('#miEmoji').value = (editItem.emoji && editItem.emoji !== '🍽️') ? editItem.emoji : '';
+                    const p = $('#miImagePreview');
+                    if (editItem.image) { p.src = editItem.image; p.style.display = 'block'; }
+                    else { p.src = ''; p.style.display = 'none'; }
+                } else {
+                    $('#miModalTitle').textContent = '🍽️ 添加新菜品';
+                    $('#miName').value = '';
+                    $('#miDesc').value = '';
+                    $('#miSides').value = '';
+                    $('#miCat').value = '主食';
+                    $('#miEmoji').value = '';
+                    $('#miRestaurant').value = '';
+                    $('#miScene').value = currentScene; // 默认跟随当前场景
+                    const p = $('#miImagePreview'); if (p) { p.src = ''; p.style.display = 'none'; }
+                }
+                $('#miImageFile').value = '';
                 updateMenuModalSceneFields();
-                const p = $('#miImagePreview'); if (p) { p.src = ''; p.style.display = 'none'; }
                 $('#menuItemModalOverlay').classList.add('open');
             }
-            // 根据所选场景显示「菜系」或「餐厅」字段
+            // 根据所选场景显示「菜系」或「餐厅」字段，并提示图片上传规则
             function updateMenuModalSceneFields() {
                 const scene = $('#miScene').value;
                 $('#miCuisineGroup').style.display = scene === 'home' ? 'block' : 'none';
                 $('#miRestaurantGroup').style.display = scene === 'restaurant' ? 'block' : 'none';
+                const hint = $('#miImageHint');
+                const label = $('#miImageLabel');
+                if (scene === 'home') {
+                    if (label) label.textContent = '📤 上传图片（可选，可拍照记录）';
+                    if (hint) hint.textContent = '🏡 暖心餐仅支持单张图片。';
+                } else {
+                    if (label) label.textContent = '📤 上传图片（可选，可拍照记录）';
+                    if (hint) hint.textContent = '🍴 寻味记暂仅支持单张图片，多图功能稍后开放。';
+                }
             }
-            function closeMenuItemModal() { $('#menuItemModalOverlay').classList.remove('open'); }
+            function closeMenuItemModal() { editingItemId = null; $('#menuItemModalOverlay').classList.remove('open'); }
+
             async function saveMenuItem() {
                 const name = $('#miName').value.trim();
-                const price = parseFloat($('#miPrice').value);
                 const desc = $('#miDesc').value.trim();
                 const cat = $('#miCat').value;
                 const scene = $('#miScene').value;
                 const emoji = $('#miEmoji').value.trim() || '🍽️';
-                const imageUrl = $('#miImageUrl').value.trim();
                 const sidesRaw = $('#miSides').value.trim();
                 const sides = sidesRaw ? sidesRaw.split(/[,，、]/).map(s => s.trim()).filter(Boolean) : [];
                 const cuisine = scene === 'home' ? $('#miCuisine').value : '';
                 const restaurant = scene === 'restaurant' ? $('#miRestaurant').value.trim() : '';
                 const preview = $('#miImagePreview');
-                let finalImage = imageUrl;
-                if (preview.style.display !== 'none' && preview.src.startsWith('data:')) finalImage = preview.src;
+                let finalImage = null;
+                if (preview.style.display !== 'none' && preview.src && (preview.src.startsWith('data:') || preview.src.startsWith('http'))) {
+                    finalImage = preview.src;
+                }
                 if (!name) { showToast('⚠️ 请填写名称'); return; }
-                if (isNaN(price) || price < 0) { showToast('⚠️ 请填写正确价格（自制可填 0）'); return; }
                 if (scene === 'restaurant' && !restaurant) { showToast('⚠️ 寻味记请填写餐厅名称'); return; }
-                const item = {
-                    id: 'c' + Date.now().toString(36),
-                    custom: true,
-                    name, price, desc, cat, emoji, scene, sides,
+
+                const isEditing = !!editingItemId;
+                // 找到正在编辑的原菜品（用于继承价格等不在表单里的字段）
+                const original = isEditing ? getAllMenu().find(m => m.id === editingItemId) : null;
+                const isPreset = original ? !!DEFAULT_MENU.find(d => d.id === editingItemId) : false;
+
+                // 价格不再在表单填写：编辑时沿用原价格，新增默认 0（自制·免费）
+                const price = original ? (original.price || 0) : 0;
+
+                const payload = {
+                    name, desc, cat, emoji, scene, sides, price,
                     cuisine: cuisine || undefined,
                     restaurant: restaurant || undefined,
-                    image: finalImage || null,
-                    createdAt: new Date().toISOString()
+                    image: finalImage,
+                    custom: true,
+                    updatedAt: new Date().toISOString()
                 };
-                // 乐观更新
+
                 isSyncing = true;
-                customMenu.push(item);
-                // 新菜品属于哪个场景就切到哪个场景，方便立刻看到
+                let rollback = null;
+
+                if (isEditing && isPreset) {
+                    // 修改预设：写成 override 项
+                    payload.id = 'ov_' + editingItemId;
+                    payload.overrideOf = editingItemId;
+                    payload.createdAt = (original && original.createdAt) || new Date().toISOString();
+                    const existingIdx = customMenu.findIndex(m => m.overrideOf === editingItemId && !m.deletedPreset);
+                    if (existingIdx !== -1) {
+                        payload.__num = customMenu[existingIdx].__num; // 复用云端记录
+                        const old = customMenu[existingIdx];
+                        customMenu[existingIdx] = payload;
+                        rollback = () => { customMenu[existingIdx] = old; };
+                    } else {
+                        customMenu.push(payload);
+                        rollback = () => { const i = customMenu.indexOf(payload); if (i!==-1) customMenu.splice(i,1); };
+                    }
+                } else if (isEditing && !isPreset) {
+                    // 修改自定义菜品：原地更新
+                    const idx = customMenu.findIndex(m => m.id === editingItemId);
+                    payload.id = editingItemId;
+                    payload.createdAt = (original && original.createdAt) || new Date().toISOString();
+                    if (idx !== -1) {
+                        payload.__num = customMenu[idx].__num;
+                        const old = customMenu[idx];
+                        customMenu[idx] = payload;
+                        rollback = () => { customMenu[idx] = old; };
+                    }
+                } else {
+                    // 新增菜品
+                    payload.id = 'c' + Date.now().toString(36);
+                    payload.createdAt = new Date().toISOString();
+                    customMenu.push(payload);
+                    rollback = () => { const i = customMenu.indexOf(payload); if (i!==-1) customMenu.splice(i,1); };
+                }
+
+                // 乐观更新界面 + 切到对应场景
                 currentScene = scene;
                 $$('.scene-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-scene') === scene));
                 currentTag = 'all';
                 renderMenu(currentCat);
                 saveCache();
+                const wasEditing = isEditing;
                 closeMenuItemModal();
                 setSyncStatus('syncing');
-                const ok = await createIssue('menu', item);
+
+                // 云端：编辑已有云记录用 PATCH，否则新建
+                let ok = false;
+                try {
+                    if (payload.__num) {
+                        await githubAPI(`${API_BASE}/${payload.__num}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ body: JSON.stringify(stripRuntime(payload)) })
+                        });
+                        ok = true;
+                    } else {
+                        const created = await githubAPI(API_BASE, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                title: `[menu] ${name}`,
+                                body: JSON.stringify(stripRuntime(payload)),
+                                labels: [issueLabel('menu')]
+                            })
+                        });
+                        if (created && created.number) { payload.__num = created.number; ok = true; }
+                    }
+                } catch (err) { handleSyncError(err); ok = false; }
+
                 isSyncing = false;
                 if (ok) {
                     setSyncStatus('synced');
                     saveCache();
-                    showToast('🍽️ 新菜品已保存并同步！');
+                    showToast(wasEditing ? '✏️ 修改已保存并同步！' : '🍽️ 新菜品已保存并同步！');
                 } else {
-                    const idx = customMenu.indexOf(item);
-                    if (idx !== -1) customMenu.splice(idx, 1);
+                    if (rollback) rollback();
                     renderMenu(currentCat);
                     saveCache();
                     showToast('⚠️ 保存失败已撤销（检查 Token / 网络 / 图片大小）');
                 }
             }
+
+            // 去掉运行时字段（__num 不写进 Issue 正文）
+            function stripRuntime(obj) {
+                const o = { ...obj };
+                delete o.__num;
+                return o;
+            }
+
             async function deleteMenuItem(item) {
+                const isPreset = !!DEFAULT_MENU.find(d => d.id === item.id);
+                if (isPreset) {
+                    // 删除预设 → 写一条 deletedPreset 标记项（双方同步隐藏）
+                    // 若已有该预设的 override，先去掉它
+                    const ovIdx = customMenu.findIndex(m => m.overrideOf === item.id && !m.deletedPreset);
+                    let ovNum = null;
+                    if (ovIdx !== -1) { ovNum = customMenu[ovIdx].__num; customMenu.splice(ovIdx, 1); }
+                    const marker = {
+                        id: 'del_' + item.id,
+                        overrideOf: item.id,
+                        deletedPreset: true,
+                        custom: true,
+                        createdAt: new Date().toISOString()
+                    };
+                    customMenu.push(marker);
+                    renderMenu(currentCat);
+                    saveCache();
+                    try {
+                        if (ovNum) { await closeIssue(ovNum); }
+                        const created = await githubAPI(API_BASE, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                title: `[menu] 删除预设 ${item.name}`,
+                                body: JSON.stringify(stripRuntime(marker)),
+                                labels: [issueLabel('menu')]
+                            })
+                        });
+                        if (created && created.number) marker.__num = created.number;
+                        saveCache();
+                    } catch (e) { console.warn('删除预设同步失败:', e); }
+                    return;
+                }
+                // 删除自定义菜品
                 const idx = customMenu.findIndex(m => m.id === item.id);
                 if (idx === -1) return;
+                const num = customMenu[idx].__num;
                 customMenu.splice(idx, 1);
                 renderMenu(currentCat);
                 saveCache();
                 try {
-                    if (item.__num) {
-                        await closeIssue(item.__num);
+                    if (num) {
+                        await closeIssue(num);
                     } else {
                         const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('menu')}&state=open&per_page=100`);
                         for (const iss of issues) {
@@ -2038,6 +2406,8 @@
             window.switchScene = switchScene;
             window.openDetail = openDetail;
             window.backFromDetail = backFromDetail;
+            window.reorder = reorder;
+            window.closeItemActions = closeItemActions;
 
             init();
             console.log('💕 甜蜜小窝 - GitHub同步版已就绪！');
