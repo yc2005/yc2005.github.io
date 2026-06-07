@@ -566,12 +566,44 @@
         </div>
     </div>
 
+    <!-- 🔑 GitHub Token 设置弹窗 -->
+    <div class="modal-overlay" id="tokenModalOverlay">
+        <div class="modal" id="tokenModal">
+            <h3>🔑 设置同步 Token</h3>
+            <p style="font-size:0.82rem;color:var(--text-light);margin-bottom:14px;line-height:1.6;">
+                为了让回忆在不同设备间同步，需要一个 GitHub 访问令牌。它只保存在<strong>当前这台设备</strong>的浏览器里，不会写进网页或仓库，因此<strong>不会被 GitHub 自动作废</strong>。换设备时在新设备上再填一次即可。
+            </p>
+            <div class="form-group">
+                <label>GitHub Token</label>
+                <input type="password" id="tokenInput" placeholder="ghp_... 或 github_pat_..." autocomplete="off">
+            </div>
+            <details style="font-size:0.8rem;color:var(--text-light);margin-bottom:14px;">
+                <summary style="cursor:pointer;color:var(--pink-dark);font-weight:600;">怎么获取 Token？（点击展开）</summary>
+                <ol style="margin:8px 0 0 18px;line-height:1.9;">
+                    <li>登录 GitHub → 右上角头像 → <strong>Settings</strong></li>
+                    <li>左侧最下 <strong>Developer settings</strong> → <strong>Personal access tokens</strong></li>
+                    <li>新建 Token，授予对仓库 <strong>yc2005.github.io</strong> 的 <strong>Issues / repo 读写</strong>权限</li>
+                    <li>复制并粘贴到上方输入框</li>
+                </ol>
+                <p style="margin-top:8px;">⚠️ Token 只显示一次，请妥善保存。</p>
+            </details>
+            <div class="btn-row">
+                <button class="btn btn-outline btn-sm" onclick="clearToken()">清除</button>
+                <button class="btn btn-primary btn-sm" onclick="saveToken()">💾 保存并同步</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         (function() {
             // ============ GitHub 配置 ============
+            // ⚠️ 不要把 Token 写死在代码里！一旦含 Token 的代码被 push 到公开仓库，
+            // GitHub 的密钥扫描会在几分钟内自动作废它 —— 这正是线上“同步失败”的根本原因。
+            // 改为：首次使用时手动输入 Token，仅保存在当前设备浏览器(localStorage)，绝不进入代码与仓库。
             const GITHUB_USERNAME = 'yc2005';
             const GITHUB_REPO = 'yc2005.github.io';
-            const GITHUB_TOKEN = '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';
+            const TOKEN_STORAGE_KEY = 'sweet_home_gh_token';
+            let GITHUB_TOKEN = localStorage.getItem(TOKEN_STORAGE_KEY) || '';
             const API_BASE = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/issues`;
 
             // ============ 数据 ============
@@ -601,6 +633,7 @@
             let currentPage = 'home';
             let anniversaryDate = '2024-01-01';
             let isSyncing = false;
+            let syncHealthy = true;
 
             // ============ DOM ============
             const $ = (sel) => document.querySelector(sel);
@@ -608,16 +641,34 @@
 
             // ============ GitHub API 工具 ============
             function githubAPI(url, options = {}) {
+                if (!GITHUB_TOKEN) {
+                    return Promise.reject({ type: 'no-token', message: '尚未设置 GitHub Token' });
+                }
                 return fetch(url, {
                     ...options,
                     headers: {
-                        'Authorization': `token ${GITHUB_TOKEN}`,
-                        'Accept': 'application/vnd.github.v3+json',
+                        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                        'Accept': 'application/vnd.github+json',
+                        'X-GitHub-Api-Version': '2022-11-28',
                         'Content-Type': 'application/json',
                         ...options.headers
                     }
-                }).then(r => {
-                    if (!r.ok) throw new Error(`GitHub API ${r.status}`);
+                }).then((r) => {
+                    if (r.status === 401) {
+                        // Token 无效或已被 GitHub 自动作废 → 清掉本地，引导重新输入
+                        localStorage.removeItem(TOKEN_STORAGE_KEY);
+                        GITHUB_TOKEN = '';
+                        throw { type: 'bad-token', status: 401, message: 'Token 无效或已被作废 (401)' };
+                    }
+                    if (r.status === 403 || r.status === 429) {
+                        throw { type: 'forbidden', status: r.status, message: '无权限或触发频率限制 (' + r.status + ')' };
+                    }
+                    if (r.status === 404) {
+                        throw { type: 'not-found', status: 404, message: '仓库或资源不存在 (404)' };
+                    }
+                    if (!r.ok) {
+                        throw { type: 'http', status: r.status, message: 'GitHub API ' + r.status };
+                    }
                     return r.json();
                 });
             }
@@ -646,8 +697,7 @@
                         }).filter(d => d !== null);
                     })
                     .catch(err => {
-                        console.warn('获取数据失败:', err);
-                        setSyncStatus('error');
+                        handleSyncError(err);
                         return [];
                     });
             }
@@ -666,8 +716,7 @@
                     setSyncStatus('synced');
                     return true;
                 }).catch(err => {
-                    console.warn('保存失败:', err);
-                    setSyncStatus('error');
+                    handleSyncError(err);
                     return false;
                 });
             }
@@ -679,51 +728,75 @@
                 }).catch(err => console.warn('关闭Issue失败:', err));
             }
 
-            function setSyncStatus(status) {
+            function setSyncStatus(status, msg) {
                 const dot = $('#syncDot');
                 const text = $('#syncText');
                 if (!dot || !text) return;
                 dot.className = 'sync-dot';
+                dot.style.background = '';
                 if (status === 'syncing') {
                     dot.classList.add('syncing');
-                    text.textContent = '同步中...';
+                    text.textContent = msg || '同步中...';
                 } else if (status === 'error') {
                     dot.style.background = '#ff4757';
-                    text.textContent = '同步失败';
+                    text.textContent = msg || '同步失败';
+                } else if (status === 'no-token') {
+                    dot.style.background = '#bbbbbb';
+                    text.textContent = msg || '点此设置 Token';
                 } else {
                     dot.style.background = '#4ecb71';
-                    text.textContent = '已同步';
+                    text.textContent = msg || '已同步';
+                }
+            }
+
+            // 统一的同步错误处理：按错误类型给提示，必要时弹出 Token 设置框
+            function handleSyncError(err) {
+                console.warn('同步出错:', err);
+                syncHealthy = false;
+                const type = err && err.type;
+                if (type === 'no-token') {
+                    setSyncStatus('no-token');
+                    openTokenModal();
+                } else if (type === 'bad-token') {
+                    setSyncStatus('error', 'Token 已失效·点此重设');
+                    openTokenModal(true);
+                } else if (type === 'forbidden') {
+                    setSyncStatus('error', '无权限/频率限制');
+                } else if (type === 'not-found') {
+                    setSyncStatus('error', '仓库不存在');
+                } else {
+                    setSyncStatus('error', '同步失败·检查网络');
                 }
             }
 
             // ============ 数据加载与保存 ============
             async function loadCloudData() {
-                try {
-                    const [memData, annData] = await Promise.all([
-                        getIssuesByType('memory'),
-                        getIssuesByType('anniversary')
-                    ]);
-                    if (memData.length > 0) {
-                        memories = memData.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
-                    }
-                    if (annData.length > 0) {
-                        const latestAnn = annData[annData.length - 1];
-                        if (latestAnn && latestAnn.date) {
-                            anniversaryDate = latestAnn.date;
-                        }
-                    }
-                    setSyncStatus('synced');
-                } catch (e) {
-                    console.warn('加载云端数据失败，使用本地缓存', e);
-                    setSyncStatus('error');
+                if (!GITHUB_TOKEN) { setSyncStatus('no-token'); openTokenModal(); return; }
+                syncHealthy = true;
+                setSyncStatus('syncing');
+                const [memData, annData] = await Promise.all([
+                    getIssuesByType('memory'),
+                    getIssuesByType('anniversary')
+                ]);
+                if (memData.length > 0) {
+                    memories = memData.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
                 }
+                if (annData.length > 0) {
+                    // 取“最新”的纪念日（按 updatedAt 排序），避免读到旧记录
+                    const latestAnn = annData.slice().sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0))[0];
+                    if (latestAnn && latestAnn.date) anniversaryDate = latestAnn.date;
+                }
+                if (syncHealthy) setSyncStatus('synced');
             }
 
             async function saveMemoryToCloud(memory) {
                 memory.createdAt = new Date().toISOString();
-                await createIssue('memory', memory);
-                memories.unshift(memory);
-                renderMemories();
+                const ok = await createIssue('memory', memory);
+                if (ok) {
+                    memories.unshift(memory);
+                    renderMemories();
+                }
+                return ok;
             }
 
             async function deleteMemoryFromCloud(index) {
@@ -749,9 +822,14 @@
             }
 
             async function saveAnniversaryToCloud(date) {
-                await createIssue('anniversary', { date, updatedAt: new Date().toISOString() });
-                anniversaryDate = date;
-                updateDaysCounter();
+                // 关闭旧的纪念日记录，避免堆积、也避免读取到旧值
+                try {
+                    const existing = await githubAPI(`${API_BASE}?labels=${issueLabel('anniversary')}&state=open&per_page=100`);
+                    for (const iss of existing) { await closeIssue(iss.number); }
+                } catch (e) { /* 忽略关闭旧记录时的错误 */ }
+                const ok = await createIssue('anniversary', { date, updatedAt: new Date().toISOString() });
+                if (ok) { anniversaryDate = date; updateDaysCounter(); }
+                return ok;
             }
 
             // ============ 初始化 ============
@@ -766,9 +844,9 @@
                 updateCartUI();
                 updateDaysCounter();
                 switchPage('home');
-                // 定期同步（每30秒）
+                // 定期同步（每30秒）—— 没有 Token 时不轮询，避免反复弹窗
                 setInterval(async () => {
-                    if (!isSyncing) {
+                    if (!isSyncing && GITHUB_TOKEN) {
                         await loadCloudData();
                         renderMemories();
                         updateDaysCounter();
@@ -838,8 +916,8 @@
                 if (newDate && /^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
                     const d = new Date(newDate);
                     if (!isNaN(d.getTime())) {
-                        await saveAnniversaryToCloud(newDate);
-                        showToast('💕 纪念日已同步！');
+                        const ok = await saveAnniversaryToCloud(newDate);
+                        showToast(ok ? '💕 纪念日已同步！' : '⚠️ 同步失败，请检查 Token');
                     }
                 }
             }
@@ -903,11 +981,15 @@
                 if (!date) { showToast('⚠️ 请选择日期'); return; }
                 const memory = { date, content, mood, image: finalImage || null };
                 isSyncing = true;
-                await saveMemoryToCloud(memory);
+                const ok = await saveMemoryToCloud(memory);
                 isSyncing = false;
-                closeMemoryModal();
                 renderMemories();
-                showToast('💌 回忆已保存并同步！');
+                if (ok) {
+                    closeMemoryModal();
+                    showToast('💌 回忆已保存并同步！');
+                } else {
+                    showToast('⚠️ 保存失败，请检查 Token 与网络');
+                }
             }
 
             function handleImageUpload(file) {
@@ -1087,7 +1169,8 @@
                     time: new Date().toISOString(),
                     orderId: 'ORD' + Date.now().toString(36).toUpperCase()
                 };
-                await createIssue('order', order);
+                const ok = await createIssue('order', order);
+                if (!ok) { showToast('⚠️ 下单失败，请检查 Token 与网络'); return; }
                 cart = [];
                 saveCartLocally();
                 updateCartUI();
@@ -1122,10 +1205,13 @@
                 $('#cartOverlay').addEventListener('click', function(e) { if (e.target === $('#cartOverlay')) closeCart(); });
                 $('#memoryModalOverlay').addEventListener('click', function(e) { if (e.target === $('#memoryModalOverlay')) closeMemoryModal(); });
                 $('#orderConfirmOverlay').addEventListener('click', function(e) { if (e.target === $('#orderConfirmOverlay')) closeOrderConfirm(); });
+                $('#tokenModalOverlay').addEventListener('click', function(e) { if (e.target === $('#tokenModalOverlay')) closeTokenModal(); });
                 $('#lightbox').addEventListener('click', function(e) { if (e.target === $('#lightbox') || e.target === $('#lightboxImg')) closeLightbox(); });
+                const syncStatusEl = $('#syncStatus');
+                if (syncStatusEl) { syncStatusEl.style.cursor = 'pointer'; syncStatusEl.title = '点击设置 / 更换 Token'; syncStatusEl.addEventListener('click', () => openTokenModal()); }
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
-                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox();
+                        closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal();
                         $('#navLinks').classList.remove('open');
                     }
                 });
@@ -1139,6 +1225,38 @@
                 });
                 const fileInput = $('#memoryImageFile');
                 if (fileInput) fileInput.addEventListener('change', function() { if (this.files[0]) handleImageUpload(this.files[0]); });
+            }
+
+            // ============ Token 设置弹窗 ============
+            function openTokenModal(isReset) {
+                const input = $('#tokenInput');
+                if (input) input.value = isReset ? '' : (GITHUB_TOKEN || '');
+                const overlay = $('#tokenModalOverlay');
+                if (overlay) overlay.classList.add('open');
+            }
+            function closeTokenModal() {
+                const overlay = $('#tokenModalOverlay');
+                if (overlay) overlay.classList.remove('open');
+            }
+            async function saveToken() {
+                const input = $('#tokenInput');
+                const val = (input.value || '').trim();
+                if (!val) { showToast('⚠️ 请粘贴 Token'); return; }
+                GITHUB_TOKEN = val;
+                try { localStorage.setItem(TOKEN_STORAGE_KEY, val); } catch (e) {}
+                closeTokenModal();
+                setSyncStatus('syncing');
+                await loadCloudData();
+                renderMemories();
+                updateDaysCounter();
+                if (GITHUB_TOKEN) showToast('🔑 Token 已保存，开始同步');
+            }
+            function clearToken() {
+                try { localStorage.removeItem(TOKEN_STORAGE_KEY); } catch (e) {}
+                GITHUB_TOKEN = '';
+                closeTokenModal();
+                setSyncStatus('no-token');
+                showToast('Token 已清除');
             }
 
             // ============ 暴露全局 ============
@@ -1157,6 +1275,10 @@
             window.closeLightbox = closeLightbox;
             window.randomPick = randomPick;
             window.changeAnniversary = changeAnniversary;
+            window.openTokenModal = openTokenModal;
+            window.closeTokenModal = closeTokenModal;
+            window.saveToken = saveToken;
+            window.clearToken = clearToken;
 
             init();
             console.log('💕 甜蜜小窝 - GitHub同步版已就绪！');
