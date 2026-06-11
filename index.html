@@ -289,6 +289,11 @@
         }
         .tag-btn.active { background: var(--gold); color: #fff; border-color: var(--gold); font-weight: 600; }
         .tag-btn:hover { border-color: var(--gold); color: var(--gold); }
+        .tag-btn.tag-add { font-weight: 700; color: var(--gold); border: 1.5px dashed var(--gold-light); min-width: 38px; }
+        .tag-btn.tag-add:hover { border-color: var(--gold); background: var(--gold-light); }
+        .bar-fold-btn { display: inline-flex; align-items: center; gap: 4px; margin: 0 0 8px; background: transparent; border: none; cursor: pointer; font-size: 0.78rem; font-weight: 700; color: var(--text-light); padding: 2px 4px; }
+        .bar-fold-btn:hover { color: var(--pink-dark); }
+        .menu-categories.bar-collapsed, .menu-subcats.bar-collapsed { display: none; }
         /* 菜品卡片上的菜系/餐厅小角标 */
         .item-tag {
             display: inline-flex; align-items: center; gap: 3px; align-self: flex-start;
@@ -709,11 +714,13 @@
             </div>
 
             <!-- 动态标签行：暖心餐显示菜系，寻味记显示餐厅 -->
+            <button class="bar-fold-btn" id="foldTagBar" type="button" data-base="🍽 菜系" onclick="toggleBarFold('menuTagBar', this)" title="折叠/展开这一行">🍽 菜系 ▾</button>
             <div class="menu-categories" id="menuTagBar"></div>
 
             <!-- 餐品大类（主食/小食/饮品/甜品，可自定义） -->
+            <button class="bar-fold-btn" id="foldCatBar" type="button" data-base="🍚 分类" onclick="toggleBarFold('menuCategories', this)" title="折叠/展开这一行">🍚 分类 ▾</button>
             <div class="menu-subcats" id="menuCategories"></div>
-            <p style="font-size:0.72rem;color:var(--text-light);margin:-8px 0 14px;">💡 小提示：双击分类可改名或删除，点「＋」可新增分类</p>
+            <p style="font-size:0.72rem;color:var(--text-light);margin:-8px 0 14px;">💡 小提示：双击分类/菜系可改名或删除，点「＋」可新增；点上面「菜系 / 分类」标题可折叠收起这一行</p>
             <div class="menu-grid" id="menuGrid"></div>
         </section>
 
@@ -989,6 +996,9 @@
                 { id: '甜品', label: '甜品', emoji: '🍰' }
             ];
             let categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+            // 菜系：独立可管理列表（名称数组），云端同步，和"分类"一样不依赖菜品
+            let cuisines = []; let _cuisineSeedTried = false;
+            let cuisineIssueNum = null;
 
             // ============ DOM ============
             const $ = (sel) => document.querySelector(sel);
@@ -1045,7 +1055,8 @@
                     cart: 'sweet-cart',
                     order: 'sweet-order',
                     menu: 'sweet-menu',
-                    category: 'sweet-category'
+                    category: 'sweet-category',
+                    cuisine: 'sweet-cuisine'
                 };
                 return labels[type] || 'sweet-data';
             }
@@ -1446,6 +1457,31 @@ async function loadCategoriesFromCloud(retry = 2) {
     }
 }
 
+            // 保存菜系列表到云端（和 saveCategoriesToCloud 一个套路）
+            async function saveCuisinesToCloud() {
+                if (!GITHUB_TOKEN) { showToast('⚠️ 未连接同步，菜系暂存本地'); return false; }
+                const body = JSON.stringify({ cuisines, updatedAt: new Date().toISOString(), updatedBy: getDeviceName() });
+                try {
+                    if (!cuisineIssueNum) {
+                        const existing = await githubAPI(`${API_BASE}?labels=${issueLabel('cuisine')}&state=open&per_page=100`);
+                        if (existing && existing.length) {
+                            cuisineIssueNum = existing[0].number;
+                            for (let i = 1; i < existing.length; i++) { try { await closeIssue(existing[i].number); } catch(e){} }
+                        }
+                    }
+                    if (cuisineIssueNum) {
+                        await githubAPI(`${API_BASE}/${cuisineIssueNum}`, { method: 'PATCH', body: JSON.stringify({ body }) });
+                    } else {
+                        const created = await githubAPI(API_BASE, {
+                            method: 'POST',
+                            body: JSON.stringify({ title: '[cuisine] 菜系列表', body, labels: [issueLabel('cuisine')] })
+                        });
+                        if (created && created.number) cuisineIssueNum = created.number;
+                    }
+                    return true;
+                } catch (err) { handleSyncError(err); return false; }
+            }
+
             async function saveCategoriesToCloud() {
                 if (!GITHUB_TOKEN) { showToast('⚠️ 未连接同步，分类暂存本地');  return false; }
                 const body = JSON.stringify({ categories, updatedAt: new Date().toISOString(), updatedBy: getDeviceName() });
@@ -1548,6 +1584,24 @@ async function deleteCategory(catId) {
     }
 }
 
+            // 新增菜系（独立列表，和"新增分类"一样）
+            function addCuisine() {
+                openRenameModal({
+                    title: '➕ 新增菜系', label: '菜系名称', value: '', emoji: '', showEmoji: false,
+                    onConfirm: async (val) => {
+                        const v = (val||'').trim();
+                        if (!v) { showToast('⚠️ 名称不能为空'); return false; }
+                        if (cuisines.includes(v)) { showToast('⚠️ 已有同名菜系'); return false; }
+                        cuisines.push(v);
+                        markDataDirty();
+                        renderTagBar();
+                        const ok = await saveCuisinesToCloud();
+                        showToast(ok ? '✅ 已新增菜系并同步' : '✅ 已新增菜系（本地）');
+                        return true;
+                    }
+                });
+            }
+
             function addCategory() {
                 openRenameModal({
                     title: '➕ 新增分类', label: '分类名称', value: '', emoji: '🍽️', showEmoji: true,
@@ -1644,6 +1698,7 @@ async function renameTag(tag) {
             if (currentTag === tag) currentTag = val;
             const ok = await applyTagChange(tag, val);
             if (ok) {
+                if (isHome) { const i = cuisines.indexOf(tag); if (i !== -1) cuisines[i] = val; else if (!cuisines.includes(val)) cuisines.push(val); await saveCuisinesToCloud(); }
                 markDataDirty();
                 renderMenu(currentCat);
                 setSyncStatus('synced');
@@ -1669,6 +1724,7 @@ async function renameTag(tag) {
     
     const ok = await applyTagChange(tag, null);
     if (ok) {
+        if (isHome) { const i = cuisines.indexOf(tag); if (i !== -1) { cuisines.splice(i, 1); await saveCuisinesToCloud(); } }
         markDataDirty();
         renderMenu(currentCat);
         setSyncStatus('synced');
@@ -1690,11 +1746,12 @@ async function renameTag(tag) {
             // 汇总所有菜系：先放"你实际在用的"（含改过名/自定义的），再补默认里没用到的
             function getAllCuisines() {
                 const list = [], seen = new Set();
+                // 以"独立菜系列表"为主，再并上在用但不在列表里的（兼容旧数据）
+                cuisines.forEach(c => { const v=(c||'').trim(); if (v && !seen.has(v)) { seen.add(v); list.push(v); } });
                 getAllMenu().forEach(m => {
                     const c = (m.cuisine || '').trim();
                     if (c && !seen.has(c)) { seen.add(c); list.push(c); }
                 });
-                CUISINE_OPTIONS.forEach(c => { if (!seen.has(c)) { seen.add(c); list.push(c); } });
                 return list;
             }
             // 动态填充"菜系"下拉，并在末尾加一个"➕ 添加新菜系…"
@@ -1711,6 +1768,7 @@ async function renameTag(tag) {
                     if (sel.value !== '__add_cuisine__') return;
                     const name = (prompt('输入新的菜系名称（例如：云南菜 / 西北菜）：') || '').trim();
                     if (name) {
+                        if (!cuisines.includes(name)) { cuisines.push(name); markDataDirty(); saveCuisinesToCloud(); }
                         if (!Array.from(sel.options).some(o => o.value === name)) {
                             const opt = document.createElement('option');
                             opt.value = name; opt.textContent = name;
@@ -1769,8 +1827,8 @@ async function renameTag(tag) {
                 } catch (err) { handleSyncError(err); return false; }
 
                 // 按 label 分组（一次请求里把六类数据分出来）
-                const grp = { memory:[], anniversary:[], menu:[], category:[], order:[], cart:[] };
-                const LM = { 'sweet-memory':'memory','sweet-anniversary':'anniversary','sweet-menu':'menu','sweet-category':'category','sweet-order':'order','sweet-cart':'cart' };
+                const grp = { memory:[], anniversary:[], menu:[], category:[], cuisine:[], order:[], cart:[] };
+                const LM = { 'sweet-memory':'memory','sweet-anniversary':'anniversary','sweet-menu':'menu','sweet-category':'category','sweet-cuisine':'cuisine','sweet-order':'order','sweet-cart':'cart' };
                 for (const iss of all) {
                     const names = (iss.labels || []).map(l => typeof l === 'string' ? l : (l && l.name));
                     for (const nm of names) { if (LM[nm]) { grp[LM[nm]].push(iss); break; } }
@@ -1802,12 +1860,23 @@ async function renameTag(tag) {
                             categories = latestCat.categories; catIssueNum = latestCat.__num;
                         }
                     }
+                    const cuiData = parse(grp.cuisine);
+                    if (cuiData.length) {
+                        const latestCui = cuiData.slice().sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0))[0];
+                        if (latestCui && Array.isArray(latestCui.cuisines)) { cuisines = latestCui.cuisines; cuisineIssueNum = latestCui.__num; }
+                    } else if (!_cuisineSeedTried) {
+                        // 云端还没有菜系列表：用当前"在用的菜系"自动建一份，之后删菜/清空预设也不丢
+                        _cuisineSeedTried = true;
+                        const seedSeen = new Set(), seed = [];
+                        getAllMenu().forEach(m => { const c=(m.cuisine||'').trim(); if (c && !seedSeen.has(c)) { seedSeen.add(c); seed.push(c); } });
+                        if (seed.length) { cuisines = seed; saveCuisinesToCloud(); }
+                    }
                     ordData.sort((a,b) => new Date(b.time||0) - new Date(a.time||0));
                     orders = ordData;
 
                     const sig = JSON.stringify({
                         m: customMenu.map(x => [x.id, x.__num, x.updatedAt, x.deletedPreset]),
-                        c: categories, mem: memories.map(x => x.createdAt), ann: anniversaryDate,
+                        c: categories, cu: cuisines, mem: memories.map(x => x.createdAt), ann: anniversaryDate,
                         o: orders.map(x => [x.orderId, x.__num])
                     });
                     if (sig !== lastRenderSig) {
@@ -2117,22 +2186,51 @@ async function renameTag(tag) {
             }
 
             // 渲染标签行
+            // 折叠/展开某个标签行（菜系 / 分类）
+            function toggleBarFold(barId, btn) {
+                const bar = document.getElementById(barId);
+                if (!bar) return;
+                const collapsed = bar.classList.toggle('bar-collapsed');
+                if (btn) {
+                    const base = btn.getAttribute('data-base') || btn.textContent.replace(/[▾▸]\s*$/, '').trim();
+                    btn.setAttribute('data-base', base);
+                    btn.textContent = base + ' ' + (collapsed ? '▸' : '▾');
+                }
+            }
+
             function renderTagBar() {
                 const bar = $('#menuTagBar');
                 if (!bar) return;
-                const tags = getSceneTags();
-                const allLabel = currentScene === 'home' ? '全部菜系' : '全部餐厅';
+                const isHome = currentScene === 'home';
+                // 菜系：以"独立列表"为准并上在用的；餐厅：仍按菜品聚合
+                let tagList;
+                if (isHome) {
+                    const used = getSceneTags();
+                    const seen = new Set(); tagList = [];
+                    cuisines.forEach(c => { const v=(c||'').trim(); if (v && !seen.has(v)) { seen.add(v); tagList.push(v); } });
+                    used.forEach(v => { if (v && !seen.has(v)) { seen.add(v); tagList.push(v); } });
+                } else {
+                    tagList = getSceneTags();
+                }
+                const allLabel = isHome ? '全部菜系' : '全部餐厅';
                 let html = `<button class="tag-btn ${currentTag==='all'?'active':''}" data-tag="all">${allLabel}</button>`;
-                html += tags.map(t =>
-                    `<button class="tag-btn ${currentTag===t?'active':''}" data-tag="${escapeAttr(t)}" title="长按可改名/删除">${currentScene==='home'?'🍽 ':'🏪 '}${escapeHTML(t)}</button>`
+                html += tagList.map(t =>
+                    `<button class="tag-btn ${currentTag===t?'active':''}" data-tag="${escapeAttr(t)}" title="长按可改名/删除">${isHome?'🍽 ':'🏪 '}${escapeHTML(t)}</button>`
                 ).join('');
+                if (isHome) html += `<button class="tag-btn tag-add" data-tag="__addcui" title="新增菜系">＋</button>`;
                 bar.innerHTML = html;
-                // 为每个标签绑定长按编辑（「全部」除外）
                 bar.querySelectorAll('.tag-btn').forEach(btn => {
                     const tag = btn.getAttribute('data-tag');
-                    if (tag === 'all') return;
+                    if (tag === 'all' || tag === '__addcui') return;
                     attachLongPress(btn, () => openTagActions(tag));
                 });
+                // 折叠按钮文字随场景变化
+                const foldBtn = $('#foldTagBar');
+                if (foldBtn) {
+                    const base = isHome ? '🍽 菜系' : '🏪 餐厅';
+                    foldBtn.setAttribute('data-base', base);
+                    foldBtn.textContent = base + ' ' + (bar.classList.contains('bar-collapsed') ? '▸' : '▾');
+                }
             }
 
             function switchScene(scene) {
@@ -3028,7 +3126,9 @@ async function confirmOrder() {
                 if (tagBar) tagBar.addEventListener('click', function(e) {
                     const btn = e.target.closest('.tag-btn');
                     if (!btn) return;
-                    currentTag = btn.getAttribute('data-tag');
+                    const tg = btn.getAttribute('data-tag');
+                    if (tg === '__addcui') { addCuisine(); return; }
+                    currentTag = tg;
                     renderMenu(currentCat);
                 });
                 // 菜单搜索（含历史点过的菜品 / 餐厅）
@@ -3230,6 +3330,7 @@ async function confirmOrder() {
                 const sides = sidesRaw ? sidesRaw.split(/[,，、]/).map(s => s.trim()).filter(Boolean) : [];
                 let cuisine = scene === 'home' ? $('#miCuisine').value : '';
                 if (cuisine === '__add_cuisine__') cuisine = ''; // 万一停在"添加新菜系"占位项上，按空处理
+                if (scene === 'home' && cuisine && !cuisines.includes(cuisine)) { cuisines.push(cuisine); saveCuisinesToCloud(); } // 新菜系并入独立列表，删菜后也不丢
                 const restaurant = scene === 'restaurant' ? $('#miRestaurant').value.trim() : '';
                 const preview = $('#miImagePreview');
                 let finalImage = null;
@@ -3438,6 +3539,7 @@ async function confirmOrder() {
             window.forceUpdateApp = forceUpdateApp;
             window.addCategory = addCategory;
             window.clearAllPresets = clearAllPresets;
+            window.toggleBarFold = toggleBarFold;
             window.closeRenameModal = closeRenameModal;
 
             init();
