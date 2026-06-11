@@ -2920,26 +2920,14 @@ async function confirmOrder() {
             function fireSystemNotification(title, body) {
                 try {
                     if (!('Notification' in window) || Notification.permission !== 'granted') return false;
-                    // 有 service worker 时优先用它发（部分系统后台横幅更稳定）
-                    if (navigator.serviceWorker && navigator.serviceWorker.ready) {
-                        navigator.serviceWorker.ready.then(reg => {
-                            try {
-                                reg.showNotification(title, {
-                                    body,
-                                    icon: NOTIFY_ICON,
-                                    badge: NOTIFY_ICON,
-                                    vibrate: [40, 60, 40],
-                                    tag: 'sweet-order',
-                                    renotify: true
-                                });
-                            } catch(e) {
-                                new Notification(title, { body, icon: NOTIFY_ICON });
-                            }
-                        }).catch(() => { try { new Notification(title, { body, icon: NOTIFY_ICON }); } catch(e){} });
-                    } else {
-                        const n = new Notification(title, { body, icon: NOTIFY_ICON });
-                        n.onclick = () => { try { window.focus(); } catch(e){} switchPage('orders'); n.close(); };
+                    // 优先让 Service Worker 来弹（从 SW 上下文发，安卓上最稳；App 在后台未被系统杀掉时也能弹到状态栏）
+                    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                        navigator.serviceWorker.controller.postMessage({ type: 'notify', title, body, icon: NOTIFY_ICON });
+                        return true;
                     }
+                    // 没有可用的 SW 接管（比如首次进入还没激活）→ 退回页面级普通通知
+                    const n = new Notification(title, { body, icon: NOTIFY_ICON });
+                    n.onclick = () => { try { window.focus(); } catch(e){} try { switchPage('orders'); } catch(e){} n.close(); };
                     return true;
                 } catch(e) { return false; }
             }
@@ -3102,6 +3090,12 @@ async function confirmOrder() {
                         }
                     });
                 }
+                // 切回前台时立刻同步一次：及时看到/弹出对方的新订单
+                document.addEventListener('visibilitychange', function() {
+                    if (document.visibilityState === 'visible' && GITHUB_TOKEN && !isSyncing) {
+                        syncAllFromCloud();
+                    }
+                });
                 document.addEventListener('keydown', function(e) {
                     if (e.key === 'Escape') {
                         closeCart(); closeMemoryModal(); closeOrderConfirm(); closeLightbox(); closeTokenModal(); closeMenuItemModal(); closeItemActions(); closeOrderNotice(); closeCatTagActions(); closeRenameModal(); closeNotifyHelp();
