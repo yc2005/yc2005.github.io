@@ -682,6 +682,7 @@
                 <h2 class="section-title">🍽️ 美味菜单</h2>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn-primary btn-sm" onclick="openMenuItemModal()">+ 添加菜品</button>
+                    <button class="btn btn-outline btn-sm" onclick="clearAllPresets()" title="一键隐藏所有系统自带的菜（自己加的不受影响）">🧹 清空预设菜</button>
                     <button class="btn btn-outline btn-sm" onclick="openCart()">🛒 购物车 <span id="cartCountInline">(0)</span></button>
                 </div>
             </div>
@@ -994,13 +995,10 @@
             const $$ = (sel) => document.querySelectorAll(sel);
 
             // ============ GitHub API 工具 ============
-	    function githubAPI(url, options = {}) {
+            function githubAPI(url, options = {}) {
                 if (!GITHUB_TOKEN) {
                     return Promise.reject({ type: 'no-token', message: '尚未设置 GitHub Token' });
                 }
-                // 关键修复：GitHub 已认证 GET 自带 Cache-Control: private, max-age=60，
-                // 浏览器/PWA 会把"Issue 列表"缓存最多 60 秒 —— 这正是"删了又出现/等好久"的根因。
-                // ① cache:'no-store' 绕开浏览器 HTTP 缓存；② GET 再加时间戳，绕开 Service Worker / 边缘缓存。
                 const method = (options.method || 'GET').toUpperCase();
                 let finalUrl = url;
                 if (method === 'GET') {
@@ -1236,15 +1234,13 @@ async function loadCloudData(retry = 2) {
             function markCartDirty() { cartDirty = true; cartLocalEditTs = Date.now(); }
             function cartProtected() { return cartDirty || _cartPushPending || (Date.now() - cartLocalEditTs < CART_PROTECT_MS); }
 
-            // —— 写操作保护（新增）：菜单/分类/订单等"写"之后的几秒内，
-            //    轮询不要用云端整体数据覆盖本地，避免"删了又闪回 / 刚下单又被旧列表盖掉"。
-            //    （GitHub 写入有约 1~2 秒最终一致性延迟，这段时间云端可能还是旧的。）
+            // —— 写操作保护：菜单/分类/订单等"写"之后的几秒内，轮询不要用云端整体数据覆盖本地，
+            //    避免"删了又闪回 / 刚下单又被旧列表盖掉"（GitHub 写入有约 1~2 秒最终一致性延迟）。
             let dataLocalWriteTs = 0;
             const DATA_PROTECT_MS = 6000;
             function markDataDirty() { dataLocalWriteTs = Date.now(); }
             function dataProtected() { return Date.now() - dataLocalWriteTs < DATA_PROTECT_MS; }
-            // 上一次菜单/分类/回忆的渲染指纹，避免无变化时反复重绘（消除卡顿与图片闪烁）
-            let lastRenderSig = '';
+            let lastRenderSig = ''; // 菜单/分类/回忆渲染指纹，避免无变化反复重绘
 
             // 把本地购物车推送到云端（带每项时间戳，支持按项合并）
             async function pushCartToCloud() {
@@ -1293,10 +1289,10 @@ async function loadCloudData(retry = 2) {
             }
 
             // 从云端拉取共享购物车；若与本地不同则更新界面
-            async function pullCartFromCloud() {
+            async function pullCartFromCloud(cartIssues) {
                 if (!GITHUB_TOKEN) return;
                 try {
-                    const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('cart')}&state=open&per_page=100`);
+                    const issues = cartIssues || await githubAPI(`${API_BASE}?labels=${issueLabel('cart')}&state=open&per_page=100`);
                     if (!issues || issues.length === 0) { return; }
                     // 取最新更新的那条作为权威共享车
                     let latest = null, latestNum = null;
@@ -1521,7 +1517,7 @@ function renameCategory(catId) {
             renderMenu(currentCat);
             const ok = await saveCategoriesToCloud();
             if (ok) {
-                markDataDirty(); // 本地 categories 已最新，不再 refetch（避免被旧数据回退）
+                markDataDirty();
                 showToast('✅ 分类已更新并同步');
             } else {
                 showToast('⚠️ 分类已更新（本地），云端同步失败');
@@ -1674,7 +1670,7 @@ async function renameTag(tag) {
     const ok = await applyTagChange(tag, null);
     if (ok) {
         markDataDirty();
-        renderMenu(currentCat); // 本地已是最新，直接重绘，不再 refetch（避免被旧数据回退）
+        renderMenu(currentCat);
         setSyncStatus('synced');
         showToast('✅ 标记已清除并同步');
     } else {
@@ -1728,6 +1724,101 @@ async function renameTag(tag) {
                 };
             }
 
+// ============ 一键隐藏全部系统预设菜（自定义菜不受影响；会同步到对方） ============
+            async function clearAllPresets() {
+                const targets = DEFAULT_MENU.filter(d => !customMenu.some(m => m.deletedPreset && m.overrideOf === d.id));
+                if (!targets.length) { showToast('没有可清除的预设菜了'); return; }
+                if (!confirm(`确定隐藏全部 ${targets.length} 道系统预设菜？\n（你自己添加的菜不受影响。之后想找回需手动重新添加，删除会同步到对方那边）`)) return;
+                markDataDirty();
+                setSyncStatus('syncing', '清除预设菜中…');
+                for (const d of targets) {
+                    const ovIdx = customMenu.findIndex(m => m.overrideOf === d.id && !m.deletedPreset);
+                    let ovNum = null;
+                    if (ovIdx !== -1) { ovNum = customMenu[ovIdx].__num; customMenu.splice(ovIdx, 1); }
+                    const marker = { id:'del_'+d.id, overrideOf:d.id, deletedPreset:true, custom:true, createdAt:new Date().toISOString() };
+                    customMenu.push(marker);
+                    renderMenu(currentCat);
+                    try {
+                        if (ovNum) await closeIssue(ovNum);
+                        const created = await githubAPI(API_BASE, { method:'POST', body: JSON.stringify({ title:`[menu] 删除预设 ${d.name}`, body: JSON.stringify(stripRuntime(marker)), labels:[issueLabel('menu')] }) });
+                        if (created && created.number) marker.__num = created.number;
+                    } catch(e) { console.warn('清除预设失败:', d.name, e); }
+                    await new Promise(r => setTimeout(r, 120)); // 轻微节流，避免一次性写太多触发二级限速
+                }
+                markDataDirty();
+                renderMenu(currentCat);
+                setSyncStatus('synced');
+                showToast('🧹 已清除全部预设菜');
+            }
+
+// ============ 统一云端同步：一次请求取回全部数据，避免触发 GitHub 频率限制(403/429) ============
+            async function syncAllFromCloud() {
+                if (!GITHUB_TOKEN) { setSyncStatus('no-token'); return false; }
+                syncHealthy = true;
+                // 分页取回所有 open issue（数据量小通常只发 1 个请求；超过 100 条才多取几页）
+                let all = [];
+                try {
+                    let page = 1;
+                    while (page <= 6) {
+                        const batch = await githubAPI(`${API_BASE}?state=open&per_page=100&page=${page}`);
+                        if (!Array.isArray(batch) || batch.length === 0) break;
+                        all = all.concat(batch);
+                        if (batch.length < 100) break;
+                        page++;
+                    }
+                } catch (err) { handleSyncError(err); return false; }
+
+                // 按 label 分组（一次请求里把六类数据分出来）
+                const grp = { memory:[], anniversary:[], menu:[], category:[], order:[], cart:[] };
+                const LM = { 'sweet-memory':'memory','sweet-anniversary':'anniversary','sweet-menu':'menu','sweet-category':'category','sweet-order':'order','sweet-cart':'cart' };
+                for (const iss of all) {
+                    const names = (iss.labels || []).map(l => typeof l === 'string' ? l : (l && l.name));
+                    for (const nm of names) { if (LM[nm]) { grp[LM[nm]].push(iss); break; } }
+                }
+                const parse = arr => arr.map(iss => { try { const d = JSON.parse(iss.body); if (d && typeof d === 'object') d.__num = iss.number; return d; } catch(e) { return null; } }).filter(Boolean);
+
+                // 购物车（带本地保护，始终处理）+ 新订单提醒（内部有 dataProtected/baseline）
+                await pullCartFromCloud(grp.cart);
+                await checkNewOrders(grp.order);
+
+                // 菜单/分类/回忆/纪念日/订单列表：本机刚写过 6 秒内不整体覆盖（防止"删了又闪回"）
+                if (!dataProtected()) {
+                    const memData = parse(grp.memory);
+                    const annData = parse(grp.anniversary);
+                    const menuData = parse(grp.menu);
+                    const catData = parse(grp.category);
+                    const ordData = parse(grp.order);
+
+                    memories = memData.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    if (annData.length) {
+                        const latestAnn = annData.slice().sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0))[0];
+                        if (latestAnn && latestAnn.date) anniversaryDate = latestAnn.date;
+                    }
+                    customMenu = menuData.map(m => { m.custom = true; return m; })
+                        .sort((a,b) => new Date(a.createdAt||0) - new Date(b.createdAt||0));
+                    if (catData.length) {
+                        const latestCat = catData.slice().sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0))[0];
+                        if (latestCat && Array.isArray(latestCat.categories) && latestCat.categories.length) {
+                            categories = latestCat.categories; catIssueNum = latestCat.__num;
+                        }
+                    }
+                    ordData.sort((a,b) => new Date(b.time||0) - new Date(a.time||0));
+                    orders = ordData;
+
+                    const sig = JSON.stringify({
+                        m: customMenu.map(x => [x.id, x.__num, x.updatedAt, x.deletedPreset]),
+                        c: categories, mem: memories.map(x => x.createdAt), ann: anniversaryDate,
+                        o: orders.map(x => [x.orderId, x.__num])
+                    });
+                    if (sig !== lastRenderSig) {
+                        lastRenderSig = sig;
+                        renderMemories(); renderMenu(currentCat); updateDaysCounter(); renderOrders();
+                    }
+                }
+                if (syncHealthy) setSyncStatus('synced');
+                return true;
+            }
+
 // ============ 初始化 ============
             async function init() {
 		categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
@@ -1751,45 +1842,18 @@ async function renameTag(tag) {
 
                 // 有 Token：直接从云端拉取（首次会显示“正在加载”）
                 setSyncStatus('syncing', '正在加载…');
-                await loadCloudData();
-                await loadCategoriesFromCloud();
-                await pullCartFromCloud();
-                await loadOrders();
-                if (orders.length) lastOrderSeenId = orders[0].orderId || '';
-                renderMemories();
-                renderMenu(currentCat);
-                updateDaysCounter();
+                await syncAllFromCloud();
                 if (syncHealthy) setSyncStatus('synced');
 
-               // 购物车 + 新订单提醒：每 3 秒
-setInterval(async () => {
-    if (GITHUB_TOKEN && !isSyncing) {
-        await pullCartFromCloud();
-        await checkNewOrders();
-    }
-}, 3000);
-// 菜单 / 分类 / 回忆 / 订单：每 5 秒
-// 关键：刚在本机做过写操作的 6 秒内跳过，避免云端旧数据把刚改的状态"闪回"。
-setInterval(async () => {
-    if (isSyncing || !GITHUB_TOKEN || dataProtected()) return;
-    await loadCloudData();
-    await loadCategoriesFromCloud();
-    await loadOrders();
-    // 只有数据真的变了才重绘，避免每 5 秒重建菜单导致的卡顿/图片闪烁/滚动跳动
-    const sig = JSON.stringify({
-        m: customMenu.map(x => [x.id, x.__num, x.updatedAt, x.deletedPreset]),
-        c: categories,
-        mem: memories.map(x => x.createdAt),
-        ann: anniversaryDate
-    });
-    if (sig !== lastRenderSig) {
-        lastRenderSig = sig;
-        renderMemories();
-        renderMenu(currentCat);
-        updateDaysCounter();
-    }
-}, 5000);
-}
+                // 统一云端同步：每 4 秒只发"一个"请求取回全部数据，
+                // 彻底避免之前每轮 5~7 个请求把 GitHub 频率限制(403/429)打爆。
+                let _allSyncBusy = false;
+                setInterval(async () => {
+                    if (!GITHUB_TOKEN || _allSyncBusy || isSyncing) return;
+                    _allSyncBusy = true;
+                    try { await syncAllFromCloud(); } finally { _allSyncBusy = false; }
+                }, 4000);
+            } // ← 关键修复：补回 init() 缺失的闭合大括号
 
             function createHearts() {
                 const container = $('#heartsContainer');
@@ -2468,10 +2532,10 @@ async function confirmOrder() {
         showToast('⚠️ 下单失败，请检查 Token 与网络');
         return;
     }
-    // 成功：直接把刚下的订单乐观显示出来（不再 loadOrders 重拉，避免"刷新才出来/还显示旧的"）
+    // 成功：乐观把刚下的订单显示出来（不再 loadOrders 重拉，避免"刷新才出来/还显示旧的"）
     markDataDirty();
     orders.unshift(order);
-    lastOrderSeenId = order.orderId; // 防止轮询把"自己的新单"当成对方的再弹一次
+    lastOrderSeenId = order.orderId; // 防止轮询把自己的新单当成对方的再弹一次
     renderOrders();
     const now = Date.now();
     cart.forEach(c => { c.qty = 0; c.del = true; c.ts = now; }); // 打删除墓碑，确保对方那边也清空
@@ -2484,6 +2548,7 @@ async function confirmOrder() {
     setSyncStatus('synced');
     showToast('🎉 下单成功！订单已记录');
 }
+
             // ============ 订单记录（双方共享） ============
             async function loadOrders() {
                 if (!GITHUB_TOKEN) return;
@@ -2526,7 +2591,7 @@ async function confirmOrder() {
                         </div>
                     `).join('');
                     const t = o.time ? new Date(o.time) : null;
-                    const timeStr = t ? `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}` : '';
+                    const timeStr = t ? `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}` : '';
                     const whoLabel = o.by ? (o.by === me ? `我（${escapeHTML(o.by)}）` : escapeHTML(o.by)) : '匿名';
                     const totalStr = (o.total && o.total > 0) ? `合计 ¥${Number(o.total).toFixed(2)}` : `共 ${items.reduce((s,i)=>s+(i.qty||1),0)} 份`;
                     card.innerHTML = `
@@ -2564,7 +2629,7 @@ async function confirmOrder() {
             }
         }
         if (num) await closeIssue(num);
-        markDataDirty(); // 续期保护，挡住一致性延迟期的旧列表
+        markDataDirty();
         showToast('🗑️ 订单已删除');
     } catch (err) {
         console.warn('删除订单失败:', err);
@@ -2573,11 +2638,11 @@ async function confirmOrder() {
 }
 
             // 检查是否有对方提交的新订单 → 弹窗提醒
-            async function checkNewOrders() {
+            async function checkNewOrders(orderIssues) {
                 if (!GITHUB_TOKEN) return;
                 if (dataProtected()) return; // 刚在本机下单/删单，先别用云端旧列表覆盖，避免闪回
                 try {
-                    const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
+                    const issues = orderIssues || await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
                     if (!Array.isArray(issues) || !issues.length) return;
                     const list = issues.map(iss => {
                         try { const d = JSON.parse(iss.body); d.__num = iss.number; return d; } catch(e) { return null; }
@@ -2901,13 +2966,8 @@ async function confirmOrder() {
         }
         showToast('🔄 正在强制同步…');
         setSyncStatus('syncing', '强制刷新中');
-        await loadCloudData();
-        await loadCategoriesFromCloud();
-        await pullCartFromCloud();
-        await loadOrders();
-        renderMemories();
-        renderMenu(currentCat);
-        updateDaysCounter();
+        dataLocalWriteTs = 0; lastRenderSig = ''; // 强制：清掉保护与渲染指纹，确保整刷+重绘
+        await syncAllFromCloud();
         setSyncStatus('synced', '已同步');
         showToast('✅ 数据已全部重新同步');
     });
@@ -3074,14 +3134,7 @@ async function confirmOrder() {
                 try { localStorage.setItem(TOKEN_STORAGE_KEY, val); } catch (e) {}
                 closeTokenModal();
                 setSyncStatus('syncing');
-                await loadCloudData();
-                await loadCategoriesFromCloud();
-                await pullCartFromCloud();
-                await loadOrders();
-                if (orders.length) lastOrderSeenId = orders[0].orderId || '';
-                renderMemories();
-                renderMenu(currentCat);
-                updateDaysCounter();
+                await syncAllFromCloud();
                 if (GITHUB_TOKEN) showToast('🔑 Token 已保存，开始同步');
             }
             function clearToken() {
@@ -3279,7 +3332,7 @@ async function confirmOrder() {
 
                 isSyncing = false;
                 if (ok) {
-                    markDataDirty(); // 防止 5 秒轮询用旧数据盖回刚保存/修改的菜品
+                    markDataDirty();
                     setSyncStatus('synced');
                     showToast(wasEditing ? '✏️ 修改已保存并同步！' : '🍽️ 新菜品已保存并同步！');
                 } else {
@@ -3298,7 +3351,7 @@ async function confirmOrder() {
             }
 
             async function deleteMenuItem(item) {
-    markDataDirty(); // 标记"刚改过菜单"，防止轮询用旧数据把它闪回
+    markDataDirty();
     const isPreset = !!DEFAULT_MENU.find(d => d.id === item.id);
     if (isPreset) {
         const ovIdx = customMenu.findIndex(m => m.overrideOf === item.id && !m.deletedPreset);
@@ -3324,9 +3377,9 @@ async function confirmOrder() {
                 })
             });
             if (created && created.number) marker.__num = created.number;
-            markDataDirty(); // 同步完成后再续期保护，挡住一致性延迟期的旧数据
+            markDataDirty();
         } catch (e) { console.warn('删除预设同步失败:', e); }
-        return; // 本地已正确显示，不再立即重拉（避免删了又闪回）
+        return;
     }
     const idx = customMenu.findIndex(m => m.id === item.id);
     if (idx === -1) return;
@@ -3384,6 +3437,7 @@ async function confirmOrder() {
             window.copyAppUrl = copyAppUrl;
             window.forceUpdateApp = forceUpdateApp;
             window.addCategory = addCategory;
+            window.clearAllPresets = clearAllPresets;
             window.closeRenameModal = closeRenameModal;
 
             init();
