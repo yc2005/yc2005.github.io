@@ -6,6 +6,7 @@
     <title>💕 我们的甜蜜小窝 - 云端同步版</title>
     <!-- PWA：让“添加到主屏幕”后成为可收通知的独立App -->
     <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="enhance.css">
     <meta name="theme-color" content="#ff6b9d">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -993,12 +994,21 @@
             const $$ = (sel) => document.querySelectorAll(sel);
 
             // ============ GitHub API 工具 ============
-            function githubAPI(url, options = {}) {
+	    function githubAPI(url, options = {}) {
                 if (!GITHUB_TOKEN) {
                     return Promise.reject({ type: 'no-token', message: '尚未设置 GitHub Token' });
                 }
-                return fetch(url, {
+                // 关键修复：GitHub 已认证 GET 自带 Cache-Control: private, max-age=60，
+                // 浏览器/PWA 会把"Issue 列表"缓存最多 60 秒 —— 这正是"删了又出现/等好久"的根因。
+                // ① cache:'no-store' 绕开浏览器 HTTP 缓存；② GET 再加时间戳，绕开 Service Worker / 边缘缓存。
+                const method = (options.method || 'GET').toUpperCase();
+                let finalUrl = url;
+                if (method === 'GET') {
+                    finalUrl += (url.includes('?') ? '&' : '?') + '_ts=' + Date.now();
+                }
+                return fetch(finalUrl, {
                     ...options,
+                    cache: 'no-store',
                     headers: {
                         'Authorization': `Bearer ${GITHUB_TOKEN}`,
                         'Accept': 'application/vnd.github+json',
@@ -1132,29 +1142,36 @@
             }
 
             // ============ 数据加载与保存 ============
-            async function loadCloudData() {
-                if (!GITHUB_TOKEN) { setSyncStatus('no-token'); openTokenModal(); return; }
-                syncHealthy = true;
-                setSyncStatus('syncing');
-                const [memData, annData, menuData] = await Promise.all([
-                    getIssuesByType('memory'),
-                    getIssuesByType('anniversary'),
-                    getIssuesByType('menu')
-                ]);
-                if (memData.length > 0) {
-                    memories = memData.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
-                }
-                if (annData.length > 0) {
-                    // 取“最新”的纪念日（按 updatedAt 排序），避免读到旧记录
-                    const latestAnn = annData.slice().sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0))[0];
-                    if (latestAnn && latestAnn.date) anniversaryDate = latestAnn.date;
-                }
-                // 自定义菜品（按创建时间正序）
-                customMenu = menuData.map(m => { m.custom = true; return m; })
-                    .sort((a,b) => new Date(a.createdAt||0) - new Date(b.createdAt||0));
-                saveCache();
-                if (syncHealthy) setSyncStatus('synced');
-            }
+async function loadCloudData(retry = 2) {
+    if (!GITHUB_TOKEN) { setSyncStatus('no-token'); return false; }
+    syncHealthy = true;
+    setSyncStatus('syncing');
+    try {
+        const [memData, annData, menuData] = await Promise.all([
+            getIssuesByType('memory'),
+            getIssuesByType('anniversary'),
+            getIssuesByType('menu')
+        ]);
+        memories = (memData.length > 0)
+            ? memData.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt))
+            : [];
+        if (annData.length > 0) {
+            const latestAnn = annData.slice().sort((a,b) => new Date(b.updatedAt||0) - new Date(a.updatedAt||0))[0];
+            if (latestAnn && latestAnn.date) anniversaryDate = latestAnn.date;
+        }
+        customMenu = menuData.map(m => { m.custom = true; return m; })
+            .sort((a,b) => new Date(a.createdAt||0) - new Date(b.createdAt||0));
+        setSyncStatus('synced');
+        return true;
+    } catch (err) {
+        if (retry > 0) {
+            await new Promise(r => setTimeout(r, 1000));
+            return loadCloudData(retry - 1);
+        }
+        handleSyncError(err);
+        return false;
+    }
+}
 
             async function saveMemoryToCloud(memory) {
                 memory.createdAt = new Date().toISOString();
@@ -1172,7 +1189,6 @@
                 // 乐观移除：先更新界面，再后台关闭对应 Issue
                 memories.splice(index, 1);
                 renderMemories();
-                saveCache();
                 try {
                     if (memory.__num) {
                         await closeIssue(memory.__num);
@@ -1219,6 +1235,16 @@
             const CART_PROTECT_MS = 12000;  // 改动后 12 秒内保护本地不被覆盖
             function markCartDirty() { cartDirty = true; cartLocalEditTs = Date.now(); }
             function cartProtected() { return cartDirty || _cartPushPending || (Date.now() - cartLocalEditTs < CART_PROTECT_MS); }
+
+            // —— 写操作保护（新增）：菜单/分类/订单等"写"之后的几秒内，
+            //    轮询不要用云端整体数据覆盖本地，避免"删了又闪回 / 刚下单又被旧列表盖掉"。
+            //    （GitHub 写入有约 1~2 秒最终一致性延迟，这段时间云端可能还是旧的。）
+            let dataLocalWriteTs = 0;
+            const DATA_PROTECT_MS = 6000;
+            function markDataDirty() { dataLocalWriteTs = Date.now(); }
+            function dataProtected() { return Date.now() - dataLocalWriteTs < DATA_PROTECT_MS; }
+            // 上一次菜单/分类/回忆的渲染指纹，避免无变化时反复重绘（消除卡顿与图片闪烁）
+            let lastRenderSig = '';
 
             // 把本地购物车推送到云端（带每项时间戳，支持按项合并）
             async function pushCartToCloud() {
@@ -1362,6 +1388,18 @@
                 }
                 return n;
             }
+async function reloadMenuFromCloud() {
+    if (!GITHUB_TOKEN) return false;
+    setSyncStatus('syncing', '刷新菜单中…');
+    const ok = await loadCloudData();
+    if (ok) {
+        renderMenu(currentCat);
+        setSyncStatus('synced');
+    } else {
+        setSyncStatus('error', '刷新菜单失败');
+    }
+    return ok;
+}
 
             // ============ 餐品大类（可自定义，双方同步） ============
             let catIssueNum = null;
@@ -1383,29 +1421,37 @@
                 });
             }
 
-            async function loadCategoriesFromCloud() {
-                if (!GITHUB_TOKEN) return;
-                try {
-                    const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('category')}&state=open&per_page=100`);
-                    if (!Array.isArray(issues) || !issues.length) return;
-                    // 取最新一条
-                    let latest = null, latestNum = null;
-                    for (const iss of issues) {
-                        try {
-                            const d = JSON.parse(iss.body);
-                            if (!latest || new Date(d.updatedAt||0) > new Date(latest.updatedAt||0)) { latest = d; latestNum = iss.number; }
-                        } catch(e) {}
-                    }
-                    if (latestNum) catIssueNum = latestNum;
-                    if (latest && Array.isArray(latest.categories) && latest.categories.length) {
-                        categories = latest.categories;
-                        saveCache();
-                    }
-                } catch (err) { console.warn('加载分类失败:', err); }
-            }
+async function loadCategoriesFromCloud(retry = 2) {
+    if (!GITHUB_TOKEN) return false;
+    try {
+        const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('category')}&state=open&per_page=100`);
+        if (!Array.isArray(issues) || !issues.length) return false;
+        let latest = null, latestNum = null;
+        for (const iss of issues) {
+            try {
+                const d = JSON.parse(iss.body);
+                if (!latest || new Date(d.updatedAt||0) > new Date(latest.updatedAt||0)) { latest = d; latestNum = iss.number; }
+            } catch(e) {}
+        }
+        if (latestNum) catIssueNum = latestNum;
+        if (latest && Array.isArray(latest.categories) && latest.categories.length) {
+            categories = latest.categories;
+        } else if (!categories.length) {
+            categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+        }
+        return true;
+    } catch (err) {
+        if (retry > 0) {
+            await new Promise(r => setTimeout(r, 800));
+            return loadCategoriesFromCloud(retry - 1);
+        }
+        console.warn('加载分类失败:', err);
+        return false;
+    }
+}
 
             async function saveCategoriesToCloud() {
-                if (!GITHUB_TOKEN) { showToast('⚠️ 未连接同步，分类暂存本地'); saveCache(); return false; }
+                if (!GITHUB_TOKEN) { showToast('⚠️ 未连接同步，分类暂存本地');  return false; }
                 const body = JSON.stringify({ categories, updatedAt: new Date().toISOString(), updatedBy: getDeviceName() });
                 try {
                     if (!catIssueNum) {
@@ -1424,7 +1470,7 @@
                         });
                         if (created && created.number) catIssueNum = created.number;
                     }
-                    saveCache();
+                    
                     return true;
                 } catch (err) { handleSyncError(err); return false; }
             }
@@ -1461,37 +1507,50 @@
             function closeRenameModal() { $('#renameModalOverlay').classList.remove('open'); renameConfirmHandler = null; }
 
             // 分类改名/改图标
-            function renameCategory(catId) {
-                const idx = categories.findIndex(c => c.id === catId);
-                if (idx === -1) return;
-                const cur = categories[idx];
-                openRenameModal({
-                    title: '✏️ 修改分类', label: '分类名称', value: cur.label, emoji: cur.emoji || '', showEmoji: true,
-                    onConfirm: async (val, emoji) => {
-                        if (!val) { showToast('⚠️ 名称不能为空'); return false; }
-                        if (categories.some((c,i) => i !== idx && (c.label === val))) { showToast('⚠️ 已有同名分类'); return false; }
-                        // 只改显示label与emoji，id保持不变 → 已归该类的菜品不受影响
-                        categories[idx] = { ...cur, label: val, emoji: (emoji||'').trim() };
-                        renderCategories(); renderMenu(currentCat);
-                        const ok = await saveCategoriesToCloud();
-                        showToast(ok ? '✅ 分类已更新并同步' : '✅ 分类已更新（本地）');
-                        return true;
-                    }
-                });
+function renameCategory(catId) {
+    const idx = categories.findIndex(c => c.id === catId);
+    if (idx === -1) return;
+    const cur = categories[idx];
+    openRenameModal({
+        title: '✏️ 修改分类', label: '分类名称', value: cur.label, emoji: cur.emoji || '', showEmoji: true,
+        onConfirm: async (val, emoji) => {
+            if (!val) { showToast('⚠️ 名称不能为空'); return false; }
+            if (categories.some((c,i) => i !== idx && (c.label === val))) { showToast('⚠️ 已有同名分类'); return false; }
+            categories[idx] = { ...cur, label: val, emoji: (emoji||'').trim() };
+            renderCategories();
+            renderMenu(currentCat);
+            const ok = await saveCategoriesToCloud();
+            if (ok) {
+                markDataDirty(); // 本地 categories 已最新，不再 refetch（避免被旧数据回退）
+                showToast('✅ 分类已更新并同步');
+            } else {
+                showToast('⚠️ 分类已更新（本地），云端同步失败');
             }
+            return true;
+        }
+    });
+}
 
             // 删除分类
-            async function deleteCategory(catId) {
-                const idx = categories.findIndex(c => c.id === catId);
-                if (idx === -1) return;
-                const cur = categories[idx];
-                if (!confirm(`确定删除分类「${cur.label}」？\n该分类下的菜品不会被删除，只是不再归到这个分类。`)) return;
-                categories.splice(idx, 1);
-                if (currentCat === catId) currentCat = 'all';
-                renderCategories(); renderMenu(currentCat);
-                const ok = await saveCategoriesToCloud();
-                showToast(ok ? '✅ 分类已删除并同步' : '✅ 分类已删除（本地）');
-            }
+async function deleteCategory(catId) {
+    const idx = categories.findIndex(c => c.id === catId);
+    if (idx === -1) return;
+    const cur = categories[idx];
+    if (!confirm(`确定删除分类「${cur.label}」？\n该分类下的菜品不会被删除，只是不再归到这个分类。`)) return;
+    
+    categories.splice(idx, 1);
+    if (currentCat === catId) currentCat = 'all';
+    renderCategories();
+    renderMenu(currentCat);
+    
+    const ok = await saveCategoriesToCloud();
+    if (ok) {
+        markDataDirty();
+        showToast('✅ 分类已删除并同步');
+    } else {
+        showToast('⚠️ 删除失败，请检查Token');
+    }
+}
 
             function addCategory() {
                 openRenameModal({
@@ -1570,47 +1629,60 @@
                         }
                     } catch (e) { allOk = false; }
                 }
-                saveCache();
+                
                 return allOk;
             }
 
-            function renameTag(tag) {
-                const isHome = currentScene === 'home';
-                const n = countByTag(tag);
-                openRenameModal({
-                    title: isHome ? '✏️ 修改菜系' : '✏️ 修改餐厅',
-                    label: (isHome ? '菜系名称' : '餐厅名称') + `（影响 ${n} 道菜）`,
-                    value: tag, emoji: '', showEmoji: false,
-                    onConfirm: async (val) => {
-                        if (!val) { showToast('⚠️ 名称不能为空'); return false; }
-                        if (val === tag) { return true; }
-                        isSyncing = true;
-                        setSyncStatus('syncing');
-                        if (currentTag === tag) currentTag = val;
-                        const ok = await applyTagChange(tag, val);
-                        isSyncing = false;
-                        setSyncStatus(ok ? 'synced' : 'error');
-                        renderMenu(currentCat);
-                        showToast(ok ? `✅ 已更新为「${val}」并同步` : '⚠️ 部分同步失败，请重试');
-                        return true;
-                    }
-                });
-            }
-
-            async function deleteTag(tag) {
-                const isHome = currentScene === 'home';
-                const n = countByTag(tag);
-                if (!confirm(`确定删除${isHome?'菜系':'餐厅'}「${tag}」？\n这 ${n} 道菜不会被删除，只是不再带这个${isHome?'菜系':'餐厅'}标记。`)) return;
-                isSyncing = true;
-                setSyncStatus('syncing');
-                if (currentTag === tag) currentTag = 'all';
-                const ok = await applyTagChange(tag, null);
-                isSyncing = false;
-                setSyncStatus(ok ? 'synced' : 'error');
+async function renameTag(tag) {
+    const isHome = currentScene === 'home';
+    const n = countByTag(tag);
+    openRenameModal({
+        title: isHome ? '✏️ 修改菜系' : '✏️ 修改餐厅',
+        label: (isHome ? '菜系名称' : '餐厅名称') + `（影响 ${n} 道菜）`,
+        value: tag, emoji: '', showEmoji: false,
+        onConfirm: async (val) => {
+            if (!val) { showToast('⚠️ 名称不能为空'); return false; }
+            if (val === tag) return true;
+            isSyncing = true;
+            setSyncStatus('syncing', `正在修改「${tag}」→「${val}」…`);
+            if (currentTag === tag) currentTag = val;
+            const ok = await applyTagChange(tag, val);
+            if (ok) {
+                markDataDirty();
                 renderMenu(currentCat);
-                showToast(ok ? '✅ 标记已清除并同步' : '⚠️ 部分同步失败，请重试');
+                setSyncStatus('synced');
+                showToast(`✅ 已更新为「${val}」并同步`);
+            } else {
+                showToast('⚠️ 部分同步失败，请重试');
+                setSyncStatus('error', '修改失败');
             }
+            isSyncing = false;
+            return true;
+        }
+    });
+}
 
+           async function deleteTag(tag) {
+    const isHome = currentScene === 'home';
+    const n = countByTag(tag);
+    if (!confirm(`确定删除${isHome?'菜系':'餐厅'}「${tag}」？\n这 ${n} 道菜不会被删除，只是不再带这个${isHome?'菜系':'餐厅'}标记。`)) return;
+    
+    isSyncing = true;
+    setSyncStatus('syncing', `正在清除「${tag}」…`);
+    if (currentTag === tag) currentTag = 'all';
+    
+    const ok = await applyTagChange(tag, null);
+    if (ok) {
+        markDataDirty();
+        renderMenu(currentCat); // 本地已是最新，直接重绘，不再 refetch（避免被旧数据回退）
+        setSyncStatus('synced');
+        showToast('✅ 标记已清除并同步');
+    } else {
+        showToast('⚠️ 部分同步失败，请重试或检查网络');
+        setSyncStatus('error', '清除失败');
+    }
+    isSyncing = false;
+}
             // 填充弹窗里的分类下拉
             function fillCategorySelect(selectedVal) {
                 const sel = $('#miCat');
@@ -1619,47 +1691,105 @@
                 if (selectedVal && categories.find(c => c.id === selectedVal)) sel.value = selectedVal;
             }
 
-            // ============ 初始化 ============
+            // 汇总所有菜系：先放"你实际在用的"（含改过名/自定义的），再补默认里没用到的
+            function getAllCuisines() {
+                const list = [], seen = new Set();
+                getAllMenu().forEach(m => {
+                    const c = (m.cuisine || '').trim();
+                    if (c && !seen.has(c)) { seen.add(c); list.push(c); }
+                });
+                CUISINE_OPTIONS.forEach(c => { if (!seen.has(c)) { seen.add(c); list.push(c); } });
+                return list;
+            }
+            // 动态填充"菜系"下拉，并在末尾加一个"➕ 添加新菜系…"
+            function fillCuisineSelect(selectedVal) {
+                const sel = $('#miCuisine');
+                if (!sel) return;
+                const list = getAllCuisines();
+                const sv = (selectedVal || '').trim();
+                if (sv && !list.includes(sv)) list.unshift(sv); // 编辑时若是列表外的自定义值，也补上
+                sel.innerHTML = list.map(c => `<option value="${escapeAttr(c)}">${escapeHTML(c)}</option>`).join('')
+                              + '<option value="__add_cuisine__">➕ 添加新菜系…</option>';
+                sel.value = (sv && list.includes(sv)) ? sv : (list[0] || '');
+                sel.onchange = function() {
+                    if (sel.value !== '__add_cuisine__') return;
+                    const name = (prompt('输入新的菜系名称（例如：云南菜 / 西北菜）：') || '').trim();
+                    if (name) {
+                        if (!Array.from(sel.options).some(o => o.value === name)) {
+                            const opt = document.createElement('option');
+                            opt.value = name; opt.textContent = name;
+                            sel.insertBefore(opt, sel.firstChild);
+                        }
+                        sel.value = name;
+                    } else {
+                        const first = Array.from(sel.options).find(o => o.value !== '__add_cuisine__');
+                        sel.value = first ? first.value : '';
+                    }
+                };
+            }
+
+// ============ 初始化 ============
             async function init() {
+		categories = DEFAULT_CATEGORIES.map(c => ({ ...c }));
                 createHearts();
                 setupEventListeners();
                 registerNotifySW();
-                // 先用本地缓存秒开界面，无需等待网络
-                loadCache();
+                // 购物车仍用本地暂存（刷新/断网时不丢失还没提交的车），其余数据全部以 GitHub 为准
                 loadCartLocally();
-                renderMemories();
-                renderMenu();
                 updateCartUI();
                 updateDaysCounter();
                 switchPage('home');
-                // 再拉取云端最新数据并刷新
+
+                // 没有 Token 就直接引导设置，不显示任何旧数据
+                if (!GITHUB_TOKEN) {
+                    renderMemories();
+                    renderMenu();
+                    setSyncStatus('no-token');
+                    openTokenModal();
+                    return;
+                }
+
+                // 有 Token：直接从云端拉取（首次会显示“正在加载”）
+                setSyncStatus('syncing', '正在加载…');
                 await loadCloudData();
                 await loadCategoriesFromCloud();
                 await pullCartFromCloud();
                 await loadOrders();
-                // 记录初始最新订单，避免一进来就弹历史订单
                 if (orders.length) lastOrderSeenId = orders[0].orderId || '';
                 renderMemories();
                 renderMenu(currentCat);
                 updateDaysCounter();
-                // 定期同步（购物车 + 新订单提醒更勤快：每 8 秒；其余每 30 秒）
-                setInterval(async () => {
-                    if (GITHUB_TOKEN && !isSyncing) {
-                        await pullCartFromCloud();
-                        await checkNewOrders();
-                    }
-                }, 8000);
-                setInterval(async () => {
-                    if (!isSyncing && GITHUB_TOKEN) {
-                        await loadCloudData();
-                        await loadCategoriesFromCloud();
-                        await loadOrders();
-                        renderMemories();
-                        renderMenu(currentCat);
-                        updateDaysCounter();
-                    }
-                }, 30000);
-            }
+                if (syncHealthy) setSyncStatus('synced');
+
+               // 购物车 + 新订单提醒：每 3 秒
+setInterval(async () => {
+    if (GITHUB_TOKEN && !isSyncing) {
+        await pullCartFromCloud();
+        await checkNewOrders();
+    }
+}, 3000);
+// 菜单 / 分类 / 回忆 / 订单：每 5 秒
+// 关键：刚在本机做过写操作的 6 秒内跳过，避免云端旧数据把刚改的状态"闪回"。
+setInterval(async () => {
+    if (isSyncing || !GITHUB_TOKEN || dataProtected()) return;
+    await loadCloudData();
+    await loadCategoriesFromCloud();
+    await loadOrders();
+    // 只有数据真的变了才重绘，避免每 5 秒重建菜单导致的卡顿/图片闪烁/滚动跳动
+    const sig = JSON.stringify({
+        m: customMenu.map(x => [x.id, x.__num, x.updatedAt, x.deletedPreset]),
+        c: categories,
+        mem: memories.map(x => x.createdAt),
+        ann: anniversaryDate
+    });
+    if (sig !== lastRenderSig) {
+        lastRenderSig = sig;
+        renderMemories();
+        renderMenu(currentCat);
+        updateDaysCounter();
+    }
+}, 5000);
+}
 
             function createHearts() {
                 const container = $('#heartsContainer');
@@ -1815,20 +1945,20 @@
                 isSyncing = true;
                 memories.unshift(memory);
                 renderMemories();
-                saveCache();
+                
                 closeMemoryModal();
                 setSyncStatus('syncing');
                 const ok = await createIssue('memory', memory);
                 isSyncing = false;
                 if (ok) {
                     setSyncStatus('synced');
-                    saveCache();
+                    
                     showToast('💌 回忆已保存并同步！');
                 } else {
                     const idx = memories.indexOf(memory);
                     if (idx !== -1) memories.splice(idx, 1);
                     renderMemories();
-                    saveCache();
+                    
                     showToast('⚠️ 保存失败已撤销（检查 Token / 网络 / 图片大小）');
                 }
             }
@@ -2320,36 +2450,40 @@
 
             function closeOrderConfirm() { $('#orderConfirmOverlay').classList.remove('open'); }
 
-            async function confirmOrder() {
-                const items = visibleCart();
-                const order = {
-                    items: items.map(c => ({ id:c.id, name:c.name, price:c.price, emoji:c.emoji, qty:c.qty })),
-                    total: items.reduce((s,c) => s + c.price * c.qty, 0),
-                    time: new Date().toISOString(),
-                    orderId: 'ORD' + Date.now().toString(36).toUpperCase(),
-                    by: getDeviceName()
-                };
-                const ok = await createIssue('order', order);
-                if (!ok) { showToast('⚠️ 下单失败，请检查 Token 与网络'); return; }
-                // 本地立即加入订单记录（乐观更新），并把基线设为自己这单，避免自我弹窗
-                orders.unshift(order);
-                lastOrderSeenId = order.orderId;
-                renderOrders();
-                // 全部打删除墓碑（带时间戳），保证清空能同步给对方且不会被旧数据复活
-                const now = Date.now();
-                cart.forEach(c => { c.qty = 0; c.del = true; c.ts = now; });
-                saveCartLocally();
-                updateCartUI();
-                renderCartItems();
-                renderMenu(currentCat);
-                closeOrderConfirm();
-                closeCart();
-                showToast('🎉 下单成功！订单已记录');
-                await pushCartToCloud(); // 把清空（墓碑）同步给对方
-                // 后台拉一次，拿到带编号的权威订单列表
-                loadOrders();
-            }
-
+async function confirmOrder() {
+    const items = visibleCart();
+    if (!items.length) { showToast('⚠️ 购物车为空'); closeOrderConfirm(); return; }
+    const order = {
+        items: items.map(c => ({ id:c.id, name:c.name, price:c.price, emoji:c.emoji, qty:c.qty })),
+        total: items.reduce((s,c) => s + c.price * c.qty, 0),
+        time: new Date().toISOString(),
+        orderId: 'ORD' + Date.now().toString(36).toUpperCase(),
+        by: getDeviceName()
+    };
+    closeOrderConfirm();
+    setSyncStatus('syncing', '提交订单中…');
+    const ok = await createIssue('order', order);
+    if (!ok) {
+        setSyncStatus('error', '订单提交失败');
+        showToast('⚠️ 下单失败，请检查 Token 与网络');
+        return;
+    }
+    // 成功：直接把刚下的订单乐观显示出来（不再 loadOrders 重拉，避免"刷新才出来/还显示旧的"）
+    markDataDirty();
+    orders.unshift(order);
+    lastOrderSeenId = order.orderId; // 防止轮询把"自己的新单"当成对方的再弹一次
+    renderOrders();
+    const now = Date.now();
+    cart.forEach(c => { c.qty = 0; c.del = true; c.ts = now; }); // 打删除墓碑，确保对方那边也清空
+    saveCartLocally();
+    updateCartUI();
+    renderCartItems();
+    renderMenu(currentCat);
+    closeCart();
+    await pushCartToCloud(); // 把清空(带墓碑)推到云端，双方同步清空
+    setSyncStatus('synced');
+    showToast('🎉 下单成功！订单已记录');
+}
             // ============ 订单记录（双方共享） ============
             async function loadOrders() {
                 if (!GITHUB_TOKEN) return;
@@ -2416,33 +2550,32 @@
 
             // 删除订单记录（同步关闭对应 Issue，双方都不再看到）
             async function deleteOrder(o) {
-                if (!confirm(`确定删除这条订单记录？\n${o.orderId || ''}\n（删除会同步到对方那边）`)) return;
-                // 乐观移除
-                const idx = orders.indexOf(o);
-                if (idx !== -1) orders.splice(idx, 1);
-                renderOrders();
-                try {
-                    let num = o.__num;
-                    if (!num) {
-                        // 兜底：按 orderId 找到对应 Issue
-                        const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
-                        for (const iss of issues) {
-                            try { const d = JSON.parse(iss.body); if (d.orderId === o.orderId) { num = iss.number; break; } } catch(e) {}
-                        }
-                    }
-                    if (num) await closeIssue(num);
-                    showToast('🗑️ 订单已删除');
-                } catch (err) {
-                    console.warn('删除订单失败:', err);
-                    showToast('⚠️ 删除失败，请重试');
-                    // 失败则重新拉取，保证一致
-                    loadOrders();
-                }
+    if (!confirm(`确定删除这条订单记录？\n${o.orderId || ''}\n（删除会同步到对方那边）`)) return;
+    markDataDirty();
+    const idx = orders.indexOf(o);
+    if (idx !== -1) orders.splice(idx, 1);
+    renderOrders();
+    try {
+        let num = o.__num;
+        if (!num) {
+            const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
+            for (const iss of issues) {
+                try { const d = JSON.parse(iss.body); if (d.orderId === o.orderId) { num = iss.number; break; } } catch(e) {}
             }
+        }
+        if (num) await closeIssue(num);
+        markDataDirty(); // 续期保护，挡住一致性延迟期的旧列表
+        showToast('🗑️ 订单已删除');
+    } catch (err) {
+        console.warn('删除订单失败:', err);
+        showToast('⚠️ 删除失败，请重试');
+    }
+}
 
             // 检查是否有对方提交的新订单 → 弹窗提醒
             async function checkNewOrders() {
                 if (!GITHUB_TOKEN) return;
+                if (dataProtected()) return; // 刚在本机下单/删单，先别用云端旧列表覆盖，避免闪回
                 try {
                     const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('order')}&state=open&per_page=100`);
                     if (!Array.isArray(issues) || !issues.length) return;
@@ -2758,7 +2891,27 @@
                 $('#menuItemModalOverlay').addEventListener('click', function(e) { if (e.target === $('#menuItemModalOverlay')) closeMenuItemModal(); });
                 $('#lightbox').addEventListener('click', function(e) { if (e.target === $('#lightbox') || e.target === $('#lightboxImg')) closeLightbox(); });
                 const syncStatusEl = $('#syncStatus');
-                if (syncStatusEl) { syncStatusEl.style.cursor = 'pointer'; syncStatusEl.title = '点击设置 / 更换 Token'; syncStatusEl.addEventListener('click', () => openTokenModal()); }
+                if (syncStatusEl) {
+    syncStatusEl.style.cursor = 'pointer';
+    syncStatusEl.title = '点击强制重新同步所有数据';
+    syncStatusEl.addEventListener('click', async () => {
+        if (!GITHUB_TOKEN) {
+            openTokenModal();
+            return;
+        }
+        showToast('🔄 正在强制同步…');
+        setSyncStatus('syncing', '强制刷新中');
+        await loadCloudData();
+        await loadCategoriesFromCloud();
+        await pullCartFromCloud();
+        await loadOrders();
+        renderMemories();
+        renderMenu(currentCat);
+        updateDaysCounter();
+        setSyncStatus('synced', '已同步');
+        showToast('✅ 数据已全部重新同步');
+    });
+}
                 // 🔔 通知开关
                 const notifyFab = $('#notifyFab');
                 if (notifyFab) {
@@ -2899,12 +3052,15 @@
                 });
             }
 
-            // ============ Token 设置弹窗 ============
+// ============ Token 设置弹窗 ============
             function openTokenModal(isReset) {
+                const overlay = $('#tokenModalOverlay');
+                if (!overlay) return;
+                // 防止多个请求同时失败时，把弹窗重复弹出来
+                if (overlay.classList.contains('open')) return;
                 const input = $('#tokenInput');
                 if (input) input.value = isReset ? '' : (GITHUB_TOKEN || '');
-                const overlay = $('#tokenModalOverlay');
-                if (overlay) overlay.classList.add('open');
+                overlay.classList.add('open');
             }
             function closeTokenModal() {
                 const overlay = $('#tokenModalOverlay');
@@ -2936,22 +3092,11 @@
                 showToast('Token 已清除');
             }
 
-            // ============ 本地缓存（让页面秒开） ============
-            const CACHE_KEY = 'sweet_home_cache_v1';
-            function saveCache() {
-                try { localStorage.setItem(CACHE_KEY, JSON.stringify({ memories, customMenu, anniversaryDate, categories })); } catch (e) {}
-            }
-            function loadCache() {
-                try {
-                    const c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
-                    if (c) {
-                        if (Array.isArray(c.memories)) memories = c.memories;
-                        if (Array.isArray(c.customMenu)) customMenu = c.customMenu;
-                        if (c.anniversaryDate) anniversaryDate = c.anniversaryDate;
-                        if (Array.isArray(c.categories) && c.categories.length) categories = c.categories;
-                    }
-                } catch (e) {}
-            }
+ // ============ 本地缓存已移除 ============
+            // 回忆 / 菜单 / 分类 / 纪念日 一律以 GitHub 为唯一数据源，不再本地缓存。
+            // 这里留两个空函数，是为了不破坏代码里其它地方对它们的调用（什么都不做）。
+            function saveCache() { /* 已移除本地缓存，什么都不做 */ }
+            function loadCache() { /* 已移除本地缓存，什么都不做 */ }
 
             // ============ 自定义菜品弹窗 ============
             function handleMenuImageUpload(file) {
@@ -2972,15 +3117,11 @@
 
             function openMenuItemModal(editItem = null) {
                 editingItemId = editItem ? editItem.id : null;
-                const cuiSel = $('#miCuisine');
-                if (cuiSel && !cuiSel.options.length) {
-                    cuiSel.innerHTML = CUISINE_OPTIONS.map(c => `<option value="${c}">${c}</option>`).join('');
-                }
                 if (editItem) {
                     $('#miModalTitle').textContent = '✏️ 修改菜品';
                     $('#miName').value = editItem.name || '';
                     $('#miScene').value = editItem.scene || 'home';
-                    $('#miCuisine').value = editItem.cuisine || CUISINE_OPTIONS[0];
+                    fillCuisineSelect(editItem.cuisine);
                     $('#miRestaurant').value = editItem.restaurant || '';
                     $('#miPrice').value = (editItem.price && editItem.price > 0) ? editItem.price : '';
                     $('#miDesc').value = editItem.desc || '';
@@ -3000,6 +3141,7 @@
                     $('#miEmoji').value = '';
                     $('#miRestaurant').value = '';
                     $('#miScene').value = currentScene; // 默认跟随当前场景
+                    fillCuisineSelect(); // 动态填充菜系下拉（含自定义/改名后的）
                     const p = $('#miImagePreview'); if (p) { p.src = ''; p.style.display = 'none'; }
                 }
                 $('#miImageFile').value = '';
@@ -3033,7 +3175,8 @@
                 const emoji = $('#miEmoji').value.trim() || '🍽️';
                 const sidesRaw = $('#miSides').value.trim();
                 const sides = sidesRaw ? sidesRaw.split(/[,，、]/).map(s => s.trim()).filter(Boolean) : [];
-                const cuisine = scene === 'home' ? $('#miCuisine').value : '';
+                let cuisine = scene === 'home' ? $('#miCuisine').value : '';
+                if (cuisine === '__add_cuisine__') cuisine = ''; // 万一停在"添加新菜系"占位项上，按空处理
                 const restaurant = scene === 'restaurant' ? $('#miRestaurant').value.trim() : '';
                 const preview = $('#miImagePreview');
                 let finalImage = null;
@@ -3107,7 +3250,7 @@
                 $$('.scene-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-scene') === scene));
                 currentTag = 'all';
                 renderMenu(currentCat);
-                saveCache();
+                
                 const wasEditing = isEditing;
                 closeMenuItemModal();
                 setSyncStatus('syncing');
@@ -3136,13 +3279,13 @@
 
                 isSyncing = false;
                 if (ok) {
+                    markDataDirty(); // 防止 5 秒轮询用旧数据盖回刚保存/修改的菜品
                     setSyncStatus('synced');
-                    saveCache();
                     showToast(wasEditing ? '✏️ 修改已保存并同步！' : '🍽️ 新菜品已保存并同步！');
                 } else {
                     if (rollback) rollback();
                     renderMenu(currentCat);
-                    saveCache();
+                    
                     showToast('⚠️ 保存失败已撤销（检查 Token / 网络 / 图片大小）');
                 }
             }
@@ -3155,59 +3298,56 @@
             }
 
             async function deleteMenuItem(item) {
-                const isPreset = !!DEFAULT_MENU.find(d => d.id === item.id);
-                if (isPreset) {
-                    // 删除预设 → 写一条 deletedPreset 标记项（双方同步隐藏）
-                    // 若已有该预设的 override，先去掉它
-                    const ovIdx = customMenu.findIndex(m => m.overrideOf === item.id && !m.deletedPreset);
-                    let ovNum = null;
-                    if (ovIdx !== -1) { ovNum = customMenu[ovIdx].__num; customMenu.splice(ovIdx, 1); }
-                    const marker = {
-                        id: 'del_' + item.id,
-                        overrideOf: item.id,
-                        deletedPreset: true,
-                        custom: true,
-                        createdAt: new Date().toISOString()
-                    };
-                    customMenu.push(marker);
-                    renderMenu(currentCat);
-                    saveCache();
-                    try {
-                        if (ovNum) { await closeIssue(ovNum); }
-                        const created = await githubAPI(API_BASE, {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                title: `[menu] 删除预设 ${item.name}`,
-                                body: JSON.stringify(stripRuntime(marker)),
-                                labels: [issueLabel('menu')]
-                            })
-                        });
-                        if (created && created.number) marker.__num = created.number;
-                        saveCache();
-                    } catch (e) { console.warn('删除预设同步失败:', e); }
-                    return;
-                }
-                // 删除自定义菜品
-                const idx = customMenu.findIndex(m => m.id === item.id);
-                if (idx === -1) return;
-                const num = customMenu[idx].__num;
-                customMenu.splice(idx, 1);
-                renderMenu(currentCat);
-                saveCache();
+    markDataDirty(); // 标记"刚改过菜单"，防止轮询用旧数据把它闪回
+    const isPreset = !!DEFAULT_MENU.find(d => d.id === item.id);
+    if (isPreset) {
+        const ovIdx = customMenu.findIndex(m => m.overrideOf === item.id && !m.deletedPreset);
+        let ovNum = null;
+        if (ovIdx !== -1) { ovNum = customMenu[ovIdx].__num; customMenu.splice(ovIdx, 1); }
+        const marker = {
+            id: 'del_' + item.id,
+            overrideOf: item.id,
+            deletedPreset: true,
+            custom: true,
+            createdAt: new Date().toISOString()
+        };
+        customMenu.push(marker);
+        renderMenu(currentCat);
+        try {
+            if (ovNum) await closeIssue(ovNum);
+            const created = await githubAPI(API_BASE, {
+                method: 'POST',
+                body: JSON.stringify({
+                    title: `[menu] 删除预设 ${item.name}`,
+                    body: JSON.stringify(stripRuntime(marker)),
+                    labels: [issueLabel('menu')]
+                })
+            });
+            if (created && created.number) marker.__num = created.number;
+            markDataDirty(); // 同步完成后再续期保护，挡住一致性延迟期的旧数据
+        } catch (e) { console.warn('删除预设同步失败:', e); }
+        return; // 本地已正确显示，不再立即重拉（避免删了又闪回）
+    }
+    const idx = customMenu.findIndex(m => m.id === item.id);
+    if (idx === -1) return;
+    const num = customMenu[idx].__num;
+    customMenu.splice(idx, 1);
+    renderMenu(currentCat);
+    try {
+        if (num) {
+            await closeIssue(num);
+        } else {
+            const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('menu')}&state=open&per_page=100`);
+            for (const iss of issues) {
                 try {
-                    if (num) {
-                        await closeIssue(num);
-                    } else {
-                        const issues = await githubAPI(`${API_BASE}?labels=${issueLabel('menu')}&state=open&per_page=100`);
-                        for (const iss of issues) {
-                            try {
-                                const data = JSON.parse(iss.body);
-                                if (data.id === item.id || data.createdAt === item.createdAt) { await closeIssue(iss.number); break; }
-                            } catch(e) {}
-                        }
-                    }
-                } catch(e) { console.warn('删除菜品失败:', e); }
+                    const data = JSON.parse(iss.body);
+                    if (data.id === item.id || data.createdAt === item.createdAt) { await closeIssue(iss.number); break; }
+                } catch(e) {}
             }
+        }
+        markDataDirty();
+    } catch(e) { console.warn('删除菜品失败:', e); }
+}
 
             // ============ 暴露全局 ============
             window.switchPage = switchPage;
