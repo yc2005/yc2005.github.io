@@ -1,4 +1,4 @@
-name: 新订单微信推送
+name: 新订单推送（钉钉 + 微信）
 
 # 对方下单（创建订单 Issue）时自动触发
 on:
@@ -10,13 +10,13 @@ permissions:
 
 jobs:
   notify:
-    # 只在"订单"Issue（带 sweet-order 标签）创建时才跑
     if: contains(github.event.issue.labels.*.name, 'sweet-order')
     runs-on: ubuntu-latest
     steps:
-      - name: 推送到微信（PushPlus）
+      - name: 同时推送到钉钉和微信
         env:
           ORDER_BODY: ${{ github.event.issue.body }}
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
         run: |
@@ -28,17 +28,41 @@ jobs:
             const items = Array.isArray(o.items) ? o.items : [];
             const count = items.reduce((s, i) => s + (i.qty || 1), 0);
             const total = o.total != null ? o.total : "";
-            const list = items.map(i => (i.emoji || "") + i.name + " ×" + (i.qty || 1)).join("、");
-            const title = "🍽️ " + by + " 下单啦！";
-            const content = (list || "有新订单") + "<br>共 " + count + " 样，合计 ¥" + total + "<br>快去 App 看看~";
-            const body = { token: e.PUSHPLUS_TOKEN, title: title, content: content, template: "html" };
-            if (e.PUSHPLUS_TOPIC) body.topic = e.PUSHPLUS_TOPIC;
-            fetch("https://www.pushplus.plus/send", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body)
-            })
-              .then(r => r.json())
-              .then(j => { console.log("PushPlus 返回:", JSON.stringify(j)); if (j.code !== 200) process.exit(1); })
-              .catch(err => { console.error("推送失败:", err); process.exit(1); });
+            const list = items.map(i => (i.emoji || "") + i.name + " x" + (i.qty || 1)).join("、");
+
+            // 钉钉：纯文本，内容里必须含关键词「订单」
+            const dingContent = "【新订单】🍽️ " + by + " 下单啦！\n" + (list || "有新订单") + "\n共 " + count + " 样，合计 ¥" + total + "\n快去 App 看看~";
+            // 微信(PushPlus)：标题 + html 内容
+            const ppTitle = "🍽️ " + by + " 下单啦！";
+            const ppContent = (list || "有新订单") + "<br>共 " + count + " 样，合计 ¥" + total + "<br>快去 App 看看~";
+
+            async function sendDing() {
+              if (!e.DINGTALK_WEBHOOK) { console.log("钉钉：未配置，跳过"); return null; }
+              try {
+                const r = await fetch(e.DINGTALK_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ msgtype: "text", text: { content: dingContent } }) });
+                const j = await r.json();
+                console.log("钉钉返回:", JSON.stringify(j));
+                return j.errcode === 0;
+              } catch (err) { console.error("钉钉异常:", err.message || String(err)); return false; }
+            }
+            async function sendPushPlus() {
+              if (!e.PUSHPLUS_TOKEN) { console.log("微信(PushPlus)：未配置，跳过"); return null; }
+              try {
+                const body = { token: e.PUSHPLUS_TOKEN, title: ppTitle, content: ppContent, template: "html" };
+                if (e.PUSHPLUS_TOPIC) body.topic = e.PUSHPLUS_TOPIC;
+                const r = await fetch("https://www.pushplus.plus/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+                const j = await r.json();
+                console.log("微信(PushPlus)返回:", JSON.stringify(j));
+                return j.code === 200;
+              } catch (err) { console.error("微信(PushPlus)异常:", err.message || String(err)); return false; }
+            }
+
+            (async () => {
+              const results = await Promise.all([sendDing(), sendPushPlus()]);
+              const configured = results.filter(r => r !== null);
+              if (configured.length === 0) { console.error("没有配置任何推送渠道（DINGTALK_WEBHOOK / PUSHPLUS_TOKEN 都没设）"); process.exit(1); }
+              const anyOk = configured.some(r => r === true);
+              if (!anyOk) { console.error("所有已配置的渠道都失败了，请看上面各自的返回。"); process.exit(1); }
+              console.log("完成：至少一个渠道发送成功。");
+            })();
           '
