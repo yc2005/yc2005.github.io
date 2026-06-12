@@ -620,7 +620,7 @@
         <span class="sync-dot" id="syncDot"></span>
         <span id="syncText">已同步</span>
     </div>
-    <button class="notify-fab" id="notifyFab" title="开启手机通知提醒">🔔</button>
+    <button class="notify-fab" id="notifyFab" title="下单提醒怎么收？">🔔</button>
 
     <nav class="top-nav">
         <div class="nav-brand" onclick="switchPage('home')">
@@ -817,16 +817,23 @@
         </div>
     </div>
 
-    <!-- 🔔 通知诊断 / 帮助弹窗 -->
+    <!-- 📢 下单提醒说明弹窗（教一遍：提醒走钉钉/微信怎么收） -->
     <div class="modal-overlay" id="notifyHelpOverlay">
         <div class="modal" id="notifyHelpModal">
-            <h3>🔔 开启手机通知</h3>
-            <div id="notifyDiag" style="font-size:0.8rem;background:var(--bg);border-radius:12px;padding:12px 14px;margin-bottom:14px;line-height:1.9;"></div>
-            <div id="notifyHelpText" style="font-size:0.86rem;color:var(--text);line-height:1.7;"></div>
-            <div class="btn-row" style="margin-top:14px;">
-                <button class="btn btn-outline btn-sm" onclick="copyAppUrl()">📋 复制网址</button>
+            <h3>📢 下单提醒怎么收？</h3>
+            <div style="font-size:0.88rem;color:var(--text);line-height:1.85;">
+                <p style="margin-bottom:10px;">对方下单时，提醒会通过 <strong>钉钉</strong>（和微信）自动发出，<strong>关掉 App 也能收到</strong> —— 比浏览器通知靠谱多了，不用在这里点任何开关。</p>
+                <p style="font-weight:700;margin:12px 0 4px;color:var(--pink-dark);">想收到提醒，确认这几点 👇</p>
+                <ol style="margin:0 0 10px 20px;line-height:2;">
+                    <li>你和对方都<strong>加入了你们的钉钉群</strong>（群里的机器人负责发"对方下单啦"）。</li>
+                    <li>手机里<strong>钉钉的通知是开着的</strong>。</li>
+                    <li>这个钉钉群<strong>没有被设成"免打扰"</strong>。</li>
+                </ol>
+                <p style="font-size:0.8rem;color:var(--text-light);line-height:1.7;background:var(--bg);border-radius:12px;padding:10px 12px;">💡 技术配置（GitHub 那套）已经一次性设好了，平时不用动。对方一下单，钉钉群里马上就有提醒。</p>
+            </div>
+            <div class="btn-row" style="margin-top:16px;">
                 <button class="btn btn-outline btn-sm" onclick="forceUpdateApp()">🔄 强制更新</button>
-                <button class="btn btn-primary btn-sm" onclick="closeNotifyHelp()">知道啦</button>
+                <button class="btn btn-primary btn-sm" onclick="closeNotifyHelp()">知道啦 💕</button>
             </div>
         </div>
     </div>
@@ -1396,7 +1403,7 @@ async function loadCloudData(retry = 2) {
                 }
                 return n;
             }
-            // 每台设备一个稳定唯一ID（推送时用它精确跳过"下单人本人"，避免给自己弹）
+            // 每台设备一个稳定唯一ID（下单时带上，区分是谁下的）
             function getDeviceId() {
                 let id = '';
                 try { id = localStorage.getItem('sweet_home_device_id') || ''; } catch(e){}
@@ -1933,6 +1940,8 @@ async function renameTag(tag) {
                     _allSyncBusy = true;
                     try { await syncAllFromCloud(); } finally { _allSyncBusy = false; }
                 }, 4000);
+
+                maybeShowPushGuideOnce(); // 首次进来教一遍"提醒怎么收"
             } // ← 关键修复：补回 init() 缺失的闭合大括号
 
             function createHearts() {
@@ -2852,37 +2861,16 @@ async function confirmOrder() {
                 return { ua, hasNotif, hasSW, standalone, isHTTPS, isIOS, isAndroid, isWebView, isQuark, isUC, isMi, isHuawei, isVivo, isOppo, isSamsung, isWeixin };
             }
 
-            function openNotifyHelp() {
-                const e = detectEnv();
-                const yn = (b) => b ? '<span style="color:#4ecb71;font-weight:700;">✓ 是</span>' : '<span style="color:#ff4757;font-weight:700;">✗ 否</span>';
-                const perm = notifyPermissionState();
-                const permTxt = perm === 'granted' ? '已允许' : perm === 'denied' ? '被拒绝' : perm === 'default' ? '未设置' : '不支持';
-                $('#notifyDiag').innerHTML =
-                    `支持通知接口：${yn(e.hasNotif)}<br>` +
-                    `支持后台程序(SW)：${yn(e.hasSW)}<br>` +
-                    `独立App模式：${yn(e.standalone)}<br>` +
-                    `安全连接(HTTPS)：${yn(e.isHTTPS)}<br>` +
-                    `通知权限状态：<strong>${permTxt}</strong>` +
-                    `<details style="margin-top:8px;"><summary style="cursor:pointer;color:var(--pink-dark);">浏览器标识（点开看）</summary><div style="font-size:0.7rem;color:var(--text-light);word-break:break-all;margin-top:4px;">${escapeHTML(e.ua)}</div></details>`;
-
-                let advice = '';
-                if (e.hasNotif) {
-                    advice = '✅ 你的浏览器其实<strong>支持通知</strong>！如果刚才没弹授权框，请再点一次右下角 🔔，或在系统「设置 → 应用 → 本应用 / 浏览器 → 通知」里手动打开。';
-                } else if (e.isWeixin) {
-                    advice = '⚠️ 你现在是在<strong>微信内置浏览器</strong>里打开的，它屏蔽了网页通知。请点右上角「···」→「在浏览器中打开」，建议用 <strong>Chrome（谷歌浏览器）</strong>，再添加到主屏幕。';
-                } else if (e.isIOS) {
-                    advice = '🍎 iPhone 要满足：① 系统 <strong>iOS 16.4 以上</strong>；② 必须用 <strong>Safari</strong> 把网页「添加到主屏幕」，再从那个图标打开（Safari 标签页里直接开收不到）。满足后再点 🔔 授权。';
-                } else if (e.isAndroid) {
-                    const name = e.isQuark ? '夸克' : e.isUC ? 'UC' : e.isMi ? '小米自带' : e.isHuawei ? '华为自带' : e.isVivo ? 'vivo自带' : e.isOppo ? 'OPPO自带' : e.isSamsung ? '三星自带' : '系统自带';
-                    advice = `📱 你用的是<strong>${name}浏览器</strong>，它的内核没有开放网页通知能力，所以一直提示不支持。<br><br>👉 <strong>解决办法：改用 Chrome（谷歌浏览器）</strong>打开本网址，再用 Chrome 菜单里的「安装应用 / 添加到主屏幕」，从新图标打开，点 🔔 就能授权了。<br><br>下方「📋 复制网址」可把链接复制后粘到 Chrome。`;
-                } else {
-                    advice = '⚠️ 当前浏览器内核未开放网页通知。建议改用 <strong>Chrome</strong> 打开本网址并安装为应用，再开启通知。';
-                }
-                if (!e.isHTTPS) {
-                    advice += '<br><br>❗ 另外检测到当前不是 HTTPS 安全连接，通知功能要求 HTTPS（GitHub Pages 默认就是 https，请确认用的是 https:// 开头的网址）。';
-                }
-                $('#notifyHelpText').innerHTML = advice;
-                $('#notifyHelpOverlay').classList.add('open');
+            function openNotifyHelp() { $('#notifyHelpOverlay').classList.add('open'); }
+            // 首次使用时自动弹一次"下单提醒怎么收"的说明（教一遍配置，之后不再弹）
+            function maybeShowPushGuideOnce() {
+                try { if (localStorage.getItem('sweet_push_guide_seen')) return; } catch(e) {}
+                if (!GITHUB_TOKEN) return; // 还没设 Token 时先让 Token 引导，等下次再教
+                setTimeout(() => {
+                    if (document.querySelector('.modal-overlay.open')) return; // 有别的弹窗开着就让位，下次再弹
+                    openNotifyHelp();
+                    try { localStorage.setItem('sweet_push_guide_seen', '1'); } catch(e) {}
+                }, 1200);
             }
             function closeNotifyHelp() { $('#notifyHelpOverlay').classList.remove('open'); }
             function copyAppUrl() {
@@ -2945,79 +2933,17 @@ async function confirmOrder() {
             }
             // 通知图标（用应用图标 PNG，Android 上显示更清晰）
             const NOTIFY_ICON = 'icon-192.png';
-            // ======== Web Push 真·后台推送 ========
-            const VAPID_PUBLIC = 'BFIyo0n6uGbcSnrhicBs1jS1qnyKnS3BnNm9e2bpcaBzssij9j1vzLI3BHmTCRglqdv8bwpoRKVCMz8pSBICZig';
-            function urlBase64ToUint8Array(base64String) {
-                const padding = '='.repeat((4 - base64String.length % 4) % 4);
-                const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-                const raw = atob(base64);
-                const arr = new Uint8Array(raw.length);
-                for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
-                return arr;
-            }
-            // 订阅后台推送，并把订阅信息存到云端（GitHub Issue），供 Actions 推送时取用
-            async function subscribePush() {
-                try {
-                    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-                        showToast('此浏览器不支持后台推送（建议用 Chrome）', 3500); return false;
-                    }
-                    if (Notification.permission !== 'granted') {
-                        const perm = await Notification.requestPermission();
-                        if (perm !== 'granted') { showToast('未授予通知权限'); return false; }
-                    }
-                    const reg = await navigator.serviceWorker.ready;
-                    let sub = await reg.pushManager.getSubscription();
-                    if (!sub) {
-                        sub = await reg.pushManager.subscribe({
-                            userVisibleOnly: true,
-                            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC)
-                        });
-                    }
-                    await savePushSubscription(sub);
-                    return true;
-                } catch (e) {
-                    console.warn('订阅后台推送失败:', e);
-                    showToast('后台推送订阅失败：' + (e && e.message ? e.message : e), 4000);
-                    return false;
-                }
-            }
-            async function savePushSubscription(sub) {
-                if (!GITHUB_TOKEN) { showToast('⚠️ 未连接同步，无法保存推送订阅'); return; }
-                const me = getDeviceName();
-                const body = JSON.stringify({ device: me, deviceId: getDeviceId(), subscription: sub.toJSON(), updatedAt: new Date().toISOString() });
-                let mine = null;
-                try {
-                    const existing = await githubAPI(`${API_BASE}?labels=${issueLabel('push')}&state=open&per_page=100`);
-                    if (Array.isArray(existing)) {
-                        for (const iss of existing) { try { const d = JSON.parse(iss.body); if (d.device === me) { mine = iss; break; } } catch(e){} }
-                    }
-                } catch(e) {}
-                if (mine) {
-                    await githubAPI(`${API_BASE}/${mine.number}`, { method: 'PATCH', body: JSON.stringify({ body }) });
-                } else {
-                    await githubAPI(API_BASE, { method: 'POST', body: JSON.stringify({ title: `[push-sub] ${me}`, body, labels: [issueLabel('push')] }) });
-                }
-            }
-
             function showOrderNotice(o) {
                 const items = Array.isArray(o.items) ? o.items : [];
                 const preview = items.slice(0, 4).map(it => `${it.emoji||'🍽️'} ${escapeHTML(it.name||'')}×${it.qty||1}`).join('、');
                 const more = items.length > 4 ? ` 等${items.length}项` : '';
                 const totalStr = (o.total && o.total > 0) ? `合计 ¥${Number(o.total).toFixed(2)}` : `共 ${items.reduce((s,i)=>s+(i.qty||1),0)} 份`;
 
-                // 1) 先尝试发系统通知（手机通知栏）
-                const plainPreview = items.slice(0,4).map(it => `${it.name||''}×${it.qty||1}`).join('、') + more;
-                const sysOk = fireSystemNotification(
-                    `💗 ${o.by||'对方'} 提交了订单`,
-                    `${plainPreview}　${totalStr}`
-                );
-
-                // 2) 同时在网页内也给一个提示（即使系统通知成功，回到App也能看到）
+                // App 开着时直接在网页内弹提示（关掉 App 后的提醒走钉钉/微信，自动发，无需在这里设置）
                 $('#orderNoticeBody').innerHTML = `
                     <p style="font-weight:700;color:var(--pink-dark);margin-bottom:6px;">💗 ${escapeHTML(o.by||'对方')} 刚提交了一个订单！</p>
                     <p style="font-size:0.9rem;color:var(--text);line-height:1.6;">${preview}${more}</p>
                     <p style="font-size:0.95rem;font-weight:700;color:#e0555f;margin-top:8px;">${totalStr}</p>
-                    ${sysOk ? '' : '<p style="font-size:0.75rem;color:var(--text-light);margin-top:8px;">💡 想收到手机通知栏提醒？点右下角同步状态旁的🔔开启</p>'}
                 `;
                 $('#orderNoticeOverlay').classList.add('open');
                 if (navigator.vibrate) { try { navigator.vibrate([20,40,20]); } catch(e){} }
@@ -3123,39 +3049,11 @@ async function confirmOrder() {
         showToast('✅ 数据已全部重新同步');
     });
 }
-                // 🔔 通知开关
+                // 🔔 下单提醒说明：点开看"提醒怎么收"（走钉钉/微信，不再用浏览器通知）
                 const notifyFab = $('#notifyFab');
                 if (notifyFab) {
-                    refreshNotifyFab();
-                    notifyFab.addEventListener('click', async () => {
-                        const state = notifyPermissionState();
-                        if (state === 'unsupported') {
-                            // 'Notification' 接口不存在：当前浏览器内核不支持网页通知。
-                            // 多见于安卓系统自带浏览器/WebView。给出明确出路 + 诊断入口。
-                            openNotifyHelp();
-                            return;
-                        }
-                        if (state === 'granted') {
-                            const ok = fireSystemNotification('💕 通知已开启', '对方提交订单时，你会在这里收到提醒~');
-                            const subbed = await subscribePush();
-                            showToast(subbed ? '🔔 后台推送已开启！对方下单关着App也能收到' : (ok ? '🔔 已发送一条测试通知' : '🔔 通知已开启'), 3500);
-                            return;
-                        }
-                        if (state === 'denied') {
-                            showToast('🔕 通知被系统拒绝了，请到手机/浏览器设置里手动允许', 4000);
-                            return;
-                        }
-                        // default → 请求授权（必须由这次点击触发）
-                        const granted = await ensureNotifyPermission(true);
-                        refreshNotifyFab();
-                        if (granted) {
-                            const subbed = await subscribePush();
-                            fireSystemNotification('💕 通知已开启', '以后对方提交订单，会直接弹到你手机通知栏~');
-                            showToast(subbed ? '🔔 后台推送已开启！关着App也能收到' : '🔔 手机通知已开启！', 3500);
-                        } else {
-                            showToast('🔕 未开启通知');
-                        }
-                    });
+                    notifyFab.title = '下单提醒怎么收？';
+                    notifyFab.addEventListener('click', () => openNotifyHelp());
                 }
                 // 切回前台时立刻同步一次：及时看到/弹出对方的新订单
                 document.addEventListener('visibilitychange', function() {
@@ -3297,6 +3195,7 @@ async function confirmOrder() {
                 setSyncStatus('syncing');
                 await syncAllFromCloud();
                 if (GITHUB_TOKEN) showToast('🔑 Token 已保存，开始同步');
+                maybeShowPushGuideOnce();
             }
             function clearToken() {
                 try { localStorage.removeItem(TOKEN_STORAGE_KEY); } catch (e) {}
