@@ -1,34 +1,44 @@
-name: 新订单后台推送
+name: 新订单微信推送
 
-# 当有人创建订单 Issue 时自动触发（订单由网页用你的 PAT 创建，会触发本工作流）
+# 对方下单（创建订单 Issue）时自动触发
 on:
   issues:
     types: [opened]
 
 permissions:
-  issues: write   # 需要读取订阅 Issue、并在订阅失效时关闭它
+  contents: read
 
 jobs:
   notify:
-    # 只在"订单"Issue（带 sweet-order 标签）创建时才跑，其它 Issue 不触发
+    # 只在"订单"Issue（带 sweet-order 标签）创建时才跑
     if: contains(github.event.issue.labels.*.name, 'sweet-order')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: 安装 web-push
-        run: npm i web-push@3
-
-      - name: 发送推送
+      - name: 推送到微信（PushPlus）
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
           ORDER_BODY: ${{ github.event.issue.body }}
-          VAPID_PUBLIC: ${{ secrets.VAPID_PUBLIC }}
-          VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
-          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
-        run: node push-sender.js
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
+        run: |
+          node -e '
+            const e = process.env;
+            let o = {};
+            try { o = JSON.parse(e.ORDER_BODY || "{}"); } catch (_) {}
+            const by = o.by || "对方";
+            const items = Array.isArray(o.items) ? o.items : [];
+            const count = items.reduce((s, i) => s + (i.qty || 1), 0);
+            const total = o.total != null ? o.total : "";
+            const list = items.map(i => (i.emoji || "") + i.name + " ×" + (i.qty || 1)).join("、");
+            const title = "🍽️ " + by + " 下单啦！";
+            const content = (list || "有新订单") + "<br>共 " + count + " 样，合计 ¥" + total + "<br>快去 App 看看~";
+            const body = { token: e.PUSHPLUS_TOKEN, title: title, content: content, template: "html" };
+            if (e.PUSHPLUS_TOPIC) body.topic = e.PUSHPLUS_TOPIC;
+            fetch("https://www.pushplus.plus/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body)
+            })
+              .then(r => r.json())
+              .then(j => { console.log("PushPlus 返回:", JSON.stringify(j)); if (j.code !== 200) process.exit(1); })
+              .catch(err => { console.error("推送失败:", err); process.exit(1); });
+          '
