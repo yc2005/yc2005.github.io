@@ -348,6 +348,7 @@
         .order-card .order-time { font-size: 0.75rem; color: var(--text-light); width: 100%; }
         .order-card .order-line { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; padding: 3px 0; color: var(--text); }
         .order-card .order-line .ol-emoji { font-size: 1.1rem; }
+        .order-card .order-line .ol-thumb { width: 26px; height: 26px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
         .order-card .order-line .ol-qty { color: var(--text-light); margin-left: auto; }
         .order-card .order-total { text-align: right; font-weight: 700; color: #e0555f; margin-top: 8px; font-size: 1rem; }
         .order-card .order-reorder { margin-top: 10px; }
@@ -451,6 +452,7 @@
         .cart-panel h3 { font-size: 1.2rem; margin-bottom: 14px; color: var(--pink-dark); display: flex; align-items: center; gap: 8px; position: sticky; top: 0; background: var(--white); padding-bottom: 10px; z-index: 1; }
         .cart-item-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f5f0f2; }
         .cart-item-row .cart-item-emoji { font-size: 2rem; flex-shrink: 0; }
+        .cart-item-row .cart-item-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; flex-shrink: 0; }
         .cart-item-row .cart-item-info { flex: 1; min-width: 0; }
         .cart-item-row .cart-item-name { font-weight: 600; font-size: 0.9rem; }
         .cart-item-row .cart-item-price { font-size: 0.8rem; color: var(--text-light); }
@@ -573,6 +575,14 @@
         .notify-fab:hover { transform: scale(1.08); }
         .notify-fab.enabled { background: var(--pink); }
         .notify-fab.denied { opacity: 0.5; }
+        .adddish-fab {
+            position: fixed; bottom: 120px; left: 16px; z-index: 150;
+            width: 48px; height: 48px; border-radius: 50%; border: none; cursor: pointer;
+            background: var(--pink); color: #fff; box-shadow: var(--shadow-lg); font-size: 1.7rem; line-height: 1;
+            display: flex; align-items: center; justify-content: center; transition: var(--transition);
+        }
+        .adddish-fab:hover { background: var(--pink-dark); transform: scale(1.08); }
+        .adddish-fab:active { transform: scale(0.92); }
 
         /* 响应式 */
         @media (max-width: 768px) {
@@ -597,6 +607,7 @@
             .hero-title { font-size: 1.3rem; }
             .sync-status { bottom: 90px; right: 8px; font-size: 0.7rem; }
             .notify-fab { bottom: 130px; right: 8px; }
+            .adddish-fab { bottom: 130px; left: 8px; }
         }
         @media (min-width: 769px) {
             .bottom-nav { display: none; }
@@ -621,6 +632,7 @@
         <span id="syncText">已同步</span>
     </div>
     <button class="notify-fab" id="notifyFab" title="下单提醒怎么收？">🔔</button>
+    <button class="adddish-fab" id="addDishFab" title="添加菜品" style="display:none;" onclick="openMenuItemModal()">＋</button>
 
     <nav class="top-nav">
         <div class="nav-brand" onclick="switchPage('home')">
@@ -686,7 +698,6 @@
             <div class="section-header">
                 <h2 class="section-title">🍽️ 美味菜单</h2>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn btn-primary btn-sm" onclick="openMenuItemModal()">+ 添加菜品</button>
                     <button class="btn btn-outline btn-sm" onclick="clearAllPresets()" title="一键隐藏所有系统自带的菜（自己加的不受影响）">🧹 清空预设菜</button>
                     <button class="btn btn-outline btn-sm" onclick="openCart()">🛒 购物车 <span id="cartCountInline">(0)</span></button>
                 </div>
@@ -1757,8 +1768,9 @@ async function renameTag(tag) {
             function fillCategorySelect(selectedVal) {
                 const sel = $('#miCat');
                 if (!sel) return;
-                sel.innerHTML = categories.map(c => `<option value="${escapeAttr(c.id)}">${c.emoji||''} ${escapeHTML(c.label)}</option>`).join('');
-                if (selectedVal && categories.find(c => c.id === selectedVal)) sel.value = selectedVal;
+                sel.innerHTML = '<option value="">— 请选择分类（可留空）—</option>'
+                    + categories.map(c => `<option value="${escapeAttr(c.id)}">${c.emoji||''} ${escapeHTML(c.label)}</option>`).join('');
+                sel.value = (selectedVal && categories.find(c => c.id === selectedVal)) ? selectedVal : '';
             }
 
             // 汇总所有菜系：先放"你实际在用的"（含改过名/自定义的），再补默认里没用到的
@@ -1779,9 +1791,10 @@ async function renameTag(tag) {
                 const list = getAllCuisines();
                 const sv = (selectedVal || '').trim();
                 if (sv && !list.includes(sv)) list.unshift(sv); // 编辑时若是列表外的自定义值，也补上
-                sel.innerHTML = list.map(c => `<option value="${escapeAttr(c)}">${escapeHTML(c)}</option>`).join('')
+                sel.innerHTML = '<option value="">— 请选择菜系（可留空）—</option>'
+                              + list.map(c => `<option value="${escapeAttr(c)}">${escapeHTML(c)}</option>`).join('')
                               + '<option value="__add_cuisine__">➕ 添加新菜系…</option>';
-                sel.value = (sv && list.includes(sv)) ? sv : (list[0] || '');
+                sel.value = (sv && list.includes(sv)) ? sv : '';
                 sel.onchange = function() {
                     if (sel.value !== '__add_cuisine__') return;
                     const name = (prompt('输入新的菜系名称（例如：云南菜 / 西北菜）：') || '').trim();
@@ -1901,8 +1914,36 @@ async function renameTag(tag) {
                         lastRenderSig = sig;
                         renderMemories(); renderMenu(currentCat); updateDaysCounter(); renderOrders();
                     }
+                    saveSnapshot();
                 }
                 if (syncHealthy) setSyncStatus('synced');
+                return true;
+            }
+
+            // —— 本地快照：刷新时先用上次的数据把界面秒开，再后台从云端校正（云端仍是唯一权威源）——
+            const SNAP_KEY = 'sweet_home_snapshot_v1';
+            function saveSnapshot() {
+                try {
+                    localStorage.setItem(SNAP_KEY, JSON.stringify({
+                        memories, customMenu, categories, cuisines, orders, anniversaryDate,
+                        catIssueNum, cuisineIssueNum, cartIssueNum, ts: Date.now()
+                    }));
+                } catch(e) { /* 本地容量超了就跳过，不影响功能 */ }
+            }
+            function loadSnapshot() {
+                try { return JSON.parse(localStorage.getItem(SNAP_KEY) || 'null'); } catch(e) { return null; }
+            }
+            function applySnapshot(s) {
+                if (!s) return false;
+                if (Array.isArray(s.memories)) memories = s.memories;
+                if (Array.isArray(s.customMenu)) customMenu = s.customMenu;
+                if (Array.isArray(s.categories) && s.categories.length) categories = s.categories;
+                if (Array.isArray(s.cuisines)) cuisines = s.cuisines;
+                if (Array.isArray(s.orders)) orders = s.orders;
+                if (s.anniversaryDate) anniversaryDate = s.anniversaryDate;
+                if (s.catIssueNum) catIssueNum = s.catIssueNum;
+                if (s.cuisineIssueNum) cuisineIssueNum = s.cuisineIssueNum;
+                if (s.cartIssueNum) cartIssueNum = s.cartIssueNum;
                 return true;
             }
 
@@ -1927,8 +1968,14 @@ async function renameTag(tag) {
                     return;
                 }
 
-                // 有 Token：直接从云端拉取（首次会显示“正在加载”）
-                setSyncStatus('syncing', '正在加载…');
+                // 有 Token：先用本地快照把界面秒开，再后台从云端校正（刷新后不再空等很久）
+                const _snap = loadSnapshot();
+                if (_snap && applySnapshot(_snap)) {
+                    renderMemories(); renderMenu(currentCat); updateDaysCounter(); renderOrders();
+                    setSyncStatus('syncing', '更新中…');
+                } else {
+                    setSyncStatus('syncing', '正在加载…');
+                }
                 await syncAllFromCloud();
                 if (syncHealthy) setSyncStatus('synced');
 
@@ -1981,6 +2028,11 @@ async function renameTag(tag) {
                 $$('.bottom-nav button[data-page]').forEach(b => b.classList.remove('active'));
                 const bottomBtn = document.querySelector(`.bottom-nav button[data-page="${navKey}"]`);
                 if (bottomBtn) bottomBtn.classList.add('active');
+                // 悬浮按钮：🔔 与同步状态只在首页显示；＋加菜按钮只在点餐页显示
+                const _onHome = (page === 'home'), _onOrder = (page === 'order');
+                const _ss = $('#syncStatus'); if (_ss) _ss.style.display = _onHome ? 'flex' : 'none';
+                const _nf = $('#notifyFab'); if (_nf) _nf.style.display = _onHome ? 'flex' : 'none';
+                const _adf = $('#addDishFab'); if (_adf) _adf.style.display = _onOrder ? 'flex' : 'none';
                 $('#navLinks').classList.remove('open');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
                 if (page === 'order') renderMenu();
@@ -2052,7 +2104,7 @@ async function renameTag(tag) {
                     card.className = 'memory-card';
                     card.innerHTML = `
                         <button class="delete-memory" title="删除" data-index="${index}">🗑️</button>
-                        <div class="memory-date">📅 ${mem.date || ''}</div>
+                        <div class="memory-date">📅 ${mem.date || ''}${mem.createdAt ? ' · 🕒 ' + fmtHMS(mem.createdAt) : ''}</div>
                         <div class="memory-content">${escapeHTML(mem.content)}</div>
                         <span class="memory-mood">${mem.mood || '🥰'}</span>
                         ${mem.image ? `<img class="memory-image" src="${escapeHTML(mem.image)}" onclick="openLightbox('${escapeHTML(mem.image)}')">` : ''}
@@ -2136,22 +2188,29 @@ async function renameTag(tag) {
             function compressImageToLimit(dataUrl, maxChars, callback) {
                 const img = new Image();
                 img.onload = function() {
-                    const widths = [800, 640, 520, 440, 360, 300, 260];
-                    const qualities = [0.7, 0.6, 0.5, 0.42, 0.35];
+                    // 优先保画质：先用较大尺寸 + 较高质量；装不下就逐步缩小尺寸，质量尽量不低于 0.62
+                    const widths = [1280, 1080, 960, 840, 720, 640, 560, 480, 400];
+                    const qualities = [0.85, 0.78, 0.7, 0.62];
                     const canvas = document.createElement('canvas');
                     const ctx = canvas.getContext('2d');
-                    for (let wi = 0; wi < widths.length; wi++) {
-                        let tw = Math.min(widths[wi], img.width);
-                        let th = Math.max(1, Math.round(img.height * (tw / img.width)));
+                    const tryAt = (w, qs) => {
+                        const tw = Math.min(w, img.width);
+                        const th = Math.max(1, Math.round(img.height * (tw / img.width)));
                         canvas.width = tw; canvas.height = th;
                         ctx.clearRect(0, 0, tw, th);
                         ctx.drawImage(img, 0, 0, tw, th);
-                        for (let qi = 0; qi < qualities.length; qi++) {
-                            const out = canvas.toDataURL('image/jpeg', qualities[qi]);
-                            if (out.length <= maxChars) { callback(out); return; }
+                        for (const q of qs) {
+                            const out = canvas.toDataURL('image/jpeg', q);
+                            if (out.length <= maxChars) return out;
                         }
+                        return null;
+                    };
+                    for (const w of widths) {
+                        const out = tryAt(w, qualities);
+                        if (out) { callback(out); return; }
                     }
-                    callback(null); // 实在压不下去
+                    // 兜底：最小尺寸再用更低质量压一次
+                    callback(tryAt(320, [0.55, 0.45, 0.38, 0.3]));
                 };
                 img.onerror = function() { callback(null); };
                 img.src = dataUrl;
@@ -2161,6 +2220,14 @@ async function renameTag(tag) {
                 const div = document.createElement('div');
                 div.textContent = str || '';
                 return div.innerHTML;
+            }
+
+            // 把 ISO 时间格式化为 时:分:秒
+            function fmtHMS(iso) {
+                if (!iso) return '';
+                const d = new Date(iso);
+                if (isNaN(d.getTime())) return '';
+                return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
             }
 
             function openLightbox(src) {
@@ -2563,13 +2630,16 @@ async function renameTag(tag) {
                     return;
                 }
                 let total = 0;
+                const menuById = {}; getAllMenu().forEach(m => { menuById[m.id] = m; });
                 container.innerHTML = items.map((item, i) => {
                     const subtotal = item.price * item.qty;
                     total += subtotal;
                     const priceShown = (item.price && item.price > 0) ? `¥${item.price} × ${item.qty} = ¥${subtotal}` : `自制 × ${item.qty}`;
+                    const _d = menuById[item.id];
+                    const _vis = (_d && _d.image) ? `<img class="cart-item-thumb" src="${_d.image}" alt="">` : `<span class="cart-item-emoji">${item.emoji||'🍽️'}</span>`;
                     return `
                         <div class="cart-item-row">
-                            <span class="cart-item-emoji">${item.emoji}</span>
+                            ${_vis}
                             <div class="cart-item-info">
                                 <div class="cart-item-name">${item.name}</div>
                                 <div class="cart-item-price">${priceShown}</div>
@@ -2698,17 +2768,22 @@ async function confirmOrder() {
                 }
                 if (empty) empty.style.display = 'none';
                 const me = getDeviceName();
+                const menuById = {}; getAllMenu().forEach(m => { menuById[m.id] = m; });
                 orders.forEach(o => {
                     const card = document.createElement('div');
                     card.className = 'order-card';
                     const items = Array.isArray(o.items) ? o.items : [];
-                    const lines = items.map(it => `
+                    const lines = items.map(it => {
+                        const _d = menuById[it.id];
+                        const _vis = (_d && _d.image) ? `<img class="ol-thumb" src="${_d.image}" alt="">` : `<span class="ol-emoji">${it.emoji || '🍽️'}</span>`;
+                        return `
                         <div class="order-line">
-                            <span class="ol-emoji">${it.emoji || '🍽️'}</span>
+                            ${_vis}
                             <span>${escapeHTML(it.name || '')}</span>
                             <span class="ol-qty">×${it.qty || 1}${(it.price && it.price>0) ? ` · ¥${(it.price*(it.qty||1)).toFixed(0)}` : ''}</span>
                         </div>
-                    `).join('');
+                    `;
+                    }).join('');
                     const t = o.time ? new Date(o.time) : null;
                     const timeStr = t ? `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}` : '';
                     const whoLabel = o.by ? (o.by === me ? `我（${escapeHTML(o.by)}）` : escapeHTML(o.by)) : '匿名';
@@ -3250,7 +3325,7 @@ async function confirmOrder() {
                     $('#miDesc').value = '';
                     $('#miSides').value = '';
                     $('#miPrice').value = '';
-                    fillCategorySelect(categories[0] && categories[0].id);
+                    fillCategorySelect(); // 默认空，让用户自己选
                     $('#miEmoji').value = '';
                     $('#miRestaurant').value = '';
                     $('#miScene').value = currentScene; // 默认跟随当前场景
