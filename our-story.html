@@ -610,11 +610,12 @@ const Dates={
     parse:s=>{const d=new Date(s+'T00:00:00');return isNaN(d.getTime())?null:d;},
     fmt:d=>d.getFullYear()+'.'+pad(d.getMonth()+1)+'.'+pad(d.getDate()),
     lastDom:(y,m)=>new Date(y,m+1,0).getDate(),
-    diff:(a,b)=>Math.round((Dates.mid(b)-Dates.mid(a))/DAY),
+    diff:(a,b)=>Math.round((Date.UTC(b.getFullYear(),b.getMonth(),b.getDate())-Date.UTC(a.getFullYear(),a.getMonth(),a.getDate()))/DAY),
     ymd(a,b){let y=b.getFullYear()-a.getFullYear(),m=b.getMonth()-a.getMonth(),d=b.getDate()-a.getDate();if(d<0){m--;d+=new Date(b.getFullYear(),b.getMonth(),0).getDate();}if(m<0){m+=12;y--;}return{y,m,d};}
 };
 function deviceId(){let id=ls.get(CFG.deviceKey);if(!id){id='d'+Math.random().toString(36).slice(2,9);ls.set(CFG.deviceKey,id);}return id;}
 const MY=deviceId();
+function nowCN(){try{const p={};new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}).formatToParts(new Date()).forEach(x=>p[x.type]=x.value);return new Date(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second);}catch(e){return new Date();}}
 
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
 function setSync(state){const d=$('#syncDot'),t=$('#syncText');if(!d)return;d.className='dot'+(state==='busy'?' busy':state==='bad'?' bad':'');t.textContent=state==='busy'?'同步中…':state==='bad'?'离线':state==='no-token'?'未连接':'已同步';}
@@ -687,12 +688,12 @@ async function loadAll(){
    4. 计算
 ============================================================ */
 const start=()=>Dates.parse(S.startDate)||new Date('2024-01-01T00:00:00');
-const togetherDays=()=>Math.max(0,Math.floor((Dates.mid(new Date())-Dates.mid(start()))/DAY));
+const togetherDays=()=>Math.max(0,Dates.diff(start(),nowCN()));
 const memDate=m=>{const d=Dates.parse(m.date)||new Date(m.createdAt||Date.now());return isNaN(d.getTime())?new Date():d;};
 
 function nextHundred(){const n=togetherDays(),next=(Math.floor(n/100)+1)*100,base=Dates.mid(start()).getTime();return{date:new Date(base+next*DAY),prev:new Date(base+(next-100)*DAY),days:next-n,label:'在一起第 '+next+' 天'};}
-function nextMonthly(){const s=start(),t=Dates.mid(new Date()),day=s.getDate();let y=t.getFullYear(),m=t.getMonth();const b=(yy,mm)=>new Date(yy,mm,Math.min(day,Dates.lastDom(yy,mm)));let c=b(y,m);if(c<t){m++;if(m>11){m=0;y++;}c=b(y,m);}let pm=m-1,py=y;if(pm<0){pm=11;py--;}const months=(c.getFullYear()-s.getFullYear())*12+(c.getMonth()-s.getMonth());return{date:c,prev:b(py,pm),days:Dates.diff(t,c),label:'第 '+months+' 个月纪念'};}
-function nextYearly(){const s=start(),t=Dates.mid(new Date());let y=t.getFullYear();const b=yy=>new Date(yy,s.getMonth(),Math.min(s.getDate(),Dates.lastDom(yy,s.getMonth())));let c=b(y);if(c<t){y++;c=b(y);}return{date:c,prev:b(y-1),days:Dates.diff(t,c),label:'第 '+(c.getFullYear()-s.getFullYear())+' 周年'};}
+function nextMonthly(){const s=start(),t=Dates.mid(nowCN()),day=s.getDate();let y=t.getFullYear(),m=t.getMonth();const b=(yy,mm)=>new Date(yy,mm,Math.min(day,Dates.lastDom(yy,mm)));let c=b(y,m);if(c<t){m++;if(m>11){m=0;y++;}c=b(y,m);}let pm=m-1,py=y;if(pm<0){pm=11;py--;}const months=(c.getFullYear()-s.getFullYear())*12+(c.getMonth()-s.getMonth());return{date:c,prev:b(py,pm),days:Dates.diff(t,c),label:'第 '+months+' 个月纪念'};}
+function nextYearly(){const s=start(),t=Dates.mid(nowCN());let y=t.getFullYear();const b=yy=>new Date(yy,s.getMonth(),Math.min(s.getDate(),Dates.lastDom(yy,s.getMonth())));let c=b(y);if(c<t){y++;c=b(y);}return{date:c,prev:b(y-1),days:Dates.diff(t,c),label:'第 '+(c.getFullYear()-s.getFullYear())+' 周年'};}
 
 /* ============================================================
    5. 渲染
@@ -714,9 +715,9 @@ function renderHero(){const s=start();$('#startBtn').textContent=Dates.fmt(s);an
 }
 
 function renderStats(){
-    const grid=$('#statsGrid');const r=Dates.ymd(Dates.mid(start()),Dates.mid(new Date())),total=togetherDays();
+    const grid=$('#statsGrid');const r=Dates.ymd(Dates.mid(start()),Dates.mid(nowCN())),total=togetherDays();
     const photos=S.memory.items.filter(m=>m.image).length;
-    let firstDays=0;if(S.memory.items.length){firstDays=Math.max(0,Dates.diff(memDate(S.memory.items[S.memory.items.length-1]),new Date()));}
+    let firstDays=0;if(S.memory.items.length){firstDays=Math.max(0,Dates.diff(memDate(S.memory.items[S.memory.items.length-1]),nowCN()));}
     let f;
     if(r.y>=1)f={num:r.y,unit:'年',sub:'又 '+r.m+' 个月 '+r.d+' 天'};
     else if(r.m>=1)f={num:r.m,unit:'个月',sub:'又 '+r.d+' 天'};
@@ -732,14 +733,14 @@ function renderMoods(){
     strip.style.display='';strip.innerHTML='<span class="ms-label">心情图鉴</span>'+arr.map(x=>'<span class="ms-chip">'+esc(x.m)+'<b>×'+x.c+'</b></span>').join('');
 }
 function renderOnThisDay(){
-    const box=$('#otd'),now=new Date();
+    const box=$('#otd'),now=nowCN();
     const hits=S.memory.items.filter(m=>{const d=memDate(m);return d.getMonth()===now.getMonth()&&d.getDate()===now.getDate()&&d.getFullYear()<now.getFullYear();});
     if(!hits.length){box.classList.remove('show');return;}
     box.classList.add('show');$('#otdTitle').textContent='去年的今天，你们也在一起 💞';
     $('#otdList').innerHTML=hits.map(m=>{const d=memDate(m),ago=now.getFullYear()-d.getFullYear();return '<div class="otd-item" data-gi="'+galleryIndex(m)+'">'+(m.image?'<img src="'+imgSrc(m)+'" alt="">':'')+'<div><div class="oi-y">'+ago+' 年前 · '+Dates.fmt(d)+'</div><div class="oi-t">'+esc(m.content||'（没有文字）')+'</div></div></div>';}).join('');
 }
 function renderCountdown(){
-    const grid=$('#countGrid'),t=Dates.mid(new Date());
+    const grid=$('#countGrid'),t=Dates.mid(nowCN());
     const autos=[nextHundred(),nextMonthly(),nextYearly()].map(i=>{const span=(i.date-i.prev)/DAY,prog=span>0?Math.max(0,Math.min(1,(t-i.prev)/(i.date-i.prev))):0;return{label:i.label,days:i.days,date:i.date,prog,custom:false};});
     let cust=S.target.items.map(tg=>{const d=Dates.parse(tg.date)||new Date();return{label:(tg.emoji?tg.emoji+' ':'')+(tg.title||'倒数日'),days:Dates.diff(t,d),date:Dates.mid(d),custom:true,createdAt:tg.createdAt,num:tg.__num};});
     cust=cust.filter(c=>c.days>=0).concat(cust.filter(c=>c.days<0));
@@ -773,7 +774,7 @@ function renderWall(){
     sec.style.display='';
     wall.innerHTML=imgs.map(m=>{const d=memDate(m);return '<figure data-gi="'+galleryIndex(m)+'"><img src="'+imgSrc(m)+'" alt="" loading="lazy"><figcaption>'+Dates.fmt(d)+(m.content?' · '+esc(m.content.slice(0,18)):'')+'</figcaption></figure>';}).join('');
 }
-function capUnlocked(c){const d=Dates.parse(c.unlockDate);return d&&Dates.mid(d)<=Dates.mid(new Date());}
+function capUnlocked(c){const d=Dates.parse(c.unlockDate);return d&&Dates.mid(d)<=Dates.mid(nowCN());}
 function renderCapsules(){
     const box=$('#capList');
     if(!S.capsule.items.length){box.innerHTML='<div class="empty"><div class="ico">📮</div><p>封存一句话给未来的你们——到了那天才会解开。</p><button class="btn btn-primary" type="button" onclick="window.__act(\'cap\')">✉️ 写一封</button></div>';return;}
@@ -782,7 +783,7 @@ function renderCapsules(){
         const ud=Dates.parse(c.unlockDate),when=ud?Dates.fmt(ud):'',sealed=c.createdAt?Dates.fmt(new Date(c.createdAt)):'';
         const del='<button class="cap-del" type="button" data-capc="'+esc(c.createdAt||'')+'">×</button>';
         if(capUnlocked(c))return '<div class="cap-card">'+del+'<span class="cap-badge">✨ 已解封</span><div class="cap-text">'+esc(c.content||'')+'</div><div class="cap-sub">封存于 '+sealed+' · 解封于 '+when+'</div></div>';
-        const days=ud?Math.max(0,Dates.diff(new Date(),ud)):0;
+        const days=ud?Math.max(0,Dates.diff(nowCN(),ud)):0;
         return '<div class="cap-card locked">'+del+'<div class="cap-lock">🔒</div><div class="cap-when">将在 '+when+' 解封</div><div class="cap-sub">还有 '+days+' 天 · 封存于 '+sealed+'</div></div>';
     }).join('');
 }
@@ -831,7 +832,7 @@ const imgSrc=m=>(m&&(localPhotos[m.image]||m.image))||'';
 function buildMoodChips(){const box=$('#amMood');box.innerHTML=MOODS.map(m=>'<button type="button" data-m="'+esc(m)+'">'+esc(m)+'</button>').join('');box.onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.classList.contains('on')){b.classList.remove('on');selectedMood='';return;}$$('button',box).forEach(x=>x.classList.remove('on'));b.classList.add('on');selectedMood=b.dataset.m;};}
 function setMoodUI(m){selectedMood=m||'';$$('#amMood button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));}
 function setPreview(src){const p=$('#amPreview'),r=$('#amRemove');if(src){p.src=src;p.style.display='block';r.style.display='inline-block';}else{p.src='';p.style.display='none';r.style.display='none';}}
-function openAdd(){if(!TOKEN)return openOv('#tokenOverlay');editing=null;pendingImage='';pendingFile=null;setMoodUI('');$('#amText').value='';$('#amFile').value='';setPreview('');const t=new Date();$('#amDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());$('#addTitle').textContent='✎ 写下此刻';$('#amSave').textContent='记下来';openOv('#addOverlay');}
+function openAdd(){if(!TOKEN)return openOv('#tokenOverlay');editing=null;pendingImage='';pendingFile=null;setMoodUI('');$('#amText').value='';$('#amFile').value='';setPreview('');const t=nowCN();$('#amDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());$('#addTitle').textContent='✎ 写下此刻';$('#amSave').textContent='记下来';openOv('#addOverlay');}
 function openEdit(idx){const m=S.memory.items[idx];if(!m)return;if(!TOKEN)return openOv('#tokenOverlay');editing={createdAt:m.createdAt,num:m.__num||null,hd:m.hd||''};pendingImage=m.image||'';pendingFile=null;setMoodUI(m.mood||'');$('#amText').value=m.content||'';$('#amFile').value='';setPreview(imgSrc(m));$('#amDate').value=(m.date&&String(m.date).length===10)?m.date:(()=>{const d=memDate(m);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());})();$('#addTitle').textContent='✎ 编辑这一刻';$('#amSave').textContent='保存修改';openOv('#addOverlay');}
 
 /* 预览图：压到能内嵌进 Issue 正文（保证任何设备/甜蜜小窝都秒显示） */
@@ -911,7 +912,7 @@ async function deleteMoment(idx){
 /* ============================================================
    8. 倒数日 / 纪念日 / 胶囊（共用 Collection）
 ============================================================ */
-function openTarget(){if(!TOKEN)return openOv('#tokenOverlay');$('#tgTitle').value='';$('#tgEmoji').value='';const t=new Date();$('#tgDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());openOv('#targetOverlay');}
+function openTarget(){if(!TOKEN)return openOv('#tokenOverlay');$('#tgTitle').value='';$('#tgEmoji').value='';const t=nowCN();$('#tgDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());openOv('#targetOverlay');}
 async function saveTarget(){
     const title=$('#tgTitle').value.trim(),date=$('#tgDate').value,emoji=$('#tgEmoji').value.trim();
     if(!title)return toast('给它起个名字吧');if(!date)return toast('选一个日期');
@@ -932,7 +933,7 @@ async function saveSD(){
     }catch(e){toast('保存失败，检查网络或 Token');setSync('bad');}finally{btn.disabled=false;btn.textContent='保存';}
 }
 
-function openCap(){if(!TOKEN)return openOv('#tokenOverlay');$('#capText').value='';const t=new Date();t.setFullYear(t.getFullYear()+1);$('#capDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());openOv('#capOverlay');}
+function openCap(){if(!TOKEN)return openOv('#tokenOverlay');$('#capText').value='';const t=nowCN();t.setFullYear(t.getFullYear()+1);$('#capDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());openOv('#capOverlay');}
 async function saveCap(){
     const text=$('#capText').value.trim(),date=$('#capDate').value;
     if(!text)return toast('写点想对未来说的话');if(!date)return toast('选一个解封的日子');
@@ -1004,7 +1005,7 @@ function paintPhoto(ctx,img,W,H){
     // 顶部
     ctx.textAlign='left';ctx.fillStyle='#fff';ctx.font='800 30px '+PF;ctx.fillText('O U R   S T O R Y',72,110);
     ctx.font='600 23px '+PF;ctx.globalAlpha=.82;ctx.fillText('我们的故事',72,146);ctx.globalAlpha=1;
-    ctx.textAlign='right';ctx.font='700 26px '+PF;ctx.globalAlpha=.92;ctx.fillText(Dates.fmt(new Date()),W-72,110);ctx.globalAlpha=1;
+    ctx.textAlign='right';ctx.font='700 26px '+PF;ctx.globalAlpha=.92;ctx.fillText(Dates.fmt(nowCN()),W-72,110);ctx.globalAlpha=1;
     // 底部信息块
     ctx.textAlign='left';const bx=72;
     const ph=S.memory.items.filter(m=>m.image).length,stat='📷 '+ph+'    ✍️ '+S.memory.items.length+'    🏆 '+badgesGot();
