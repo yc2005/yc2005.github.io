@@ -665,6 +665,7 @@
                     <button class="quick-action-btn" onclick="randomPick()"><span class="icon">🎲</span>随机选</button>
                 </div>
             </div>
+            <a href="our-story.html" style="display:flex;align-items:center;justify-content:center;gap:10px;margin:0 auto 18px;max-width:520px;padding:16px 20px;border-radius:18px;background:linear-gradient(120deg,#ff3d77,#ff7a4d);color:#fff;font-weight:800;text-decoration:none;box-shadow:0 16px 34px -14px rgba(229,17,78,.55);font-size:1.05rem;">📖 翻开《我们的故事》· 恋爱长卷 →</a>
             <div class="random-pick-area">
                 <p style="font-weight:600;">🎯 不知道吃什么？先选今天在哪儿吃～</p>
                 <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px;">
@@ -2042,10 +2043,14 @@ async function renameTag(tag) {
             }
 
             function updateDaysCounter() {
-                const startDate = new Date(anniversaryDate);
-                const today = new Date();
-                const diffTime = today - startDate;
-                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                let diffDays;
+                try {
+                    const _p = {}; new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).forEach(x=>_p[x.type]=x.value);
+                    const _todayCN = _p.year + '-' + _p.month + '-' + _p.day;
+                    diffDays = Math.round((Date.parse(_todayCN+'T00:00:00Z') - Date.parse(anniversaryDate+'T00:00:00Z')) / 86400000);
+                } catch (e) {
+                    diffDays = Math.floor((new Date() - new Date(anniversaryDate)) / 86400000);
+                }
                 const daysCount = $('#daysCount');
                 if (daysCount) daysCount.textContent = diffDays >= 0 ? diffDays : 0;
                 const dateDisplay = $('#anniversaryDateDisplay');
