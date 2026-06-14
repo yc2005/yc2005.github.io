@@ -300,6 +300,9 @@ img{max-width:100%}
 .lightbox .x{position:absolute;top:14px;right:18px;font-size:2.4rem;color:#fff;background:none;border:none;cursor:pointer;opacity:.85;z-index:2}
 .lb-nav{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;border-radius:50%;border:none;background:rgba(255,255,255,.14);color:#fff;font-size:1.8rem;cursor:pointer;backdrop-filter:blur(6px);transition:.25s;z-index:2}
 .lb-nav:hover{background:rgba(255,255,255,.28)}.lb-prev{left:12px}.lb-next{right:12px}
+.lb-dl{margin-top:12px;display:inline-block;font-size:.82rem;font-weight:800;color:#fff;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);padding:9px 18px;border-radius:30px;text-decoration:none;backdrop-filter:blur(6px);transition:.2s}
+.lb-dl:hover{background:rgba(255,255,255,.3)}
+#lbImg.loading{opacity:.6;filter:blur(1px)}
 
 .toast{position:fixed;top:calc(20px + env(safe-area-inset-top));left:50%;transform:translateX(-50%) translateY(-140px);z-index:400;background:linear-gradient(120deg,#3a1530,#5a2748);color:#fff;font-weight:800;padding:13px 26px;border-radius:30px;box-shadow:0 16px 44px rgba(40,15,34,.4);transition:transform .5s var(--spring);font-size:.92rem;max-width:86vw;text-align:center;pointer-events:none}
 .toast.show{transform:translateX(-50%) translateY(0)}
@@ -368,7 +371,7 @@ img{max-width:100%}
 /* 触屏设备：关掉毛玻璃与持续动画，消除安卓重绘卡顿/闪屏 */
 @media (hover:none){
     .glowdrift,.grain{display:none}
-    .chip-btn,.ping-btn,.stat,.mood-strip .ms-chip,.count-card,.moment-body,.m-tools button,.empty,.cap-card,.cap-del,.badge,.play-tile,.sync,.totop,.navdots a span,.overlay,.sheet,.lightbox,.lb-nav,.pill-btn.ghost,.show-ctrl button,#themePop{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+    .chip-btn,.ping-btn,.stat,.mood-strip .ms-chip,.count-card,.moment-body,.m-tools button,.empty,.cap-card,.cap-del,.badge,.play-tile,.sync,.totop,.navdots a span,.overlay,.sheet,.lightbox,.lb-nav,.lb-dl,.pill-btn.ghost,.show-ctrl button,#themePop{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
     :root{--card:rgba(255,251,249,.94);--sheet:rgba(255,251,249,.99);--chip:rgba(255,240,246,.97)}
     [data-theme="night"]{--card:rgba(58,30,64,.93);--sheet:rgba(40,22,52,.99);--chip:rgba(255,255,255,.13)}
 }
@@ -575,6 +578,7 @@ img{max-width:100%}
     <img id="lbImg" alt="">
     <button class="lb-nav lb-next" id="lbNext" type="button">›</button>
     <div class="lb-cap"><b id="lbDate"></b><span id="lbText"></span></div>
+    <a class="lb-dl" id="lbDownload" download style="display:none">⬇ 保存原图</a>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -587,6 +591,8 @@ img{max-width:100%}
 ============================================================ */
 const CFG={owner:'yc2005',repo:'yc2005.github.io',tokenKey:'sweet_home_gh_token',snapKey:'our_story_snap_v3',themeKey:'our_story_theme',deviceKey:'our_story_device',pingSeenKey:'our_story_ping_seen'};
 const API='https://api.github.com/repos/'+CFG.owner+'/'+CFG.repo+'/issues';
+const API_CONTENTS='https://api.github.com/repos/'+CFG.owner+'/'+CFG.repo+'/contents';
+const PHOTO_DIR='our-story-photos';
 const LABEL={memory:'sweet-memory',anniversary:'sweet-anniversary',target:'sweet-target',capsule:'sweet-capsule',ping:'sweet-ping'};
 const DAY=86400000;
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -790,7 +796,7 @@ function renderBadges(){
 
 /* 灯箱图集 */
 let gallery=[],lbIndex=0;
-function buildGallery(){gallery=S.memory.items.filter(m=>m.image).map(m=>({src:imgSrc(m),date:Dates.fmt(memDate(m)),text:m.content||''}));}
+function buildGallery(){gallery=S.memory.items.filter(m=>m.image).map(m=>({src:imgSrc(m),hd:m.hd||'',date:Dates.fmt(memDate(m)),text:m.content||''}));}
 function galleryIndex(m){if(!m.image)return -1;let c=0;for(const x of S.memory.items){if(x.image){if(x===m)return c;c++;}}return -1;}
 
 /* ============================================================
@@ -801,62 +807,101 @@ const closeOv=s=>$(s).classList.remove('open');
 const OVERLAYS=['#addOverlay','#targetOverlay','#sdOverlay','#tokenOverlay','#capOverlay','#drawOverlay','#posterOverlay','#gameOverlay'];
 
 function openLightbox(i){if(!gallery.length)return;lbIndex=(i+gallery.length)%gallery.length;showLb();$('#lightbox').classList.add('open');}
-function showLb(){const g=gallery[lbIndex];if(!g)return;$('#lbImg').src=g.src;$('#lbDate').textContent=g.date;$('#lbText').textContent=g.text;const multi=gallery.length>1;$('#lbPrev').style.display=$('#lbNext').style.display=multi?'':'none';}
+function showLb(){
+    const g=gallery[lbIndex];if(!g)return;const idx=lbIndex;
+    $('#lbImg').src=g.src;$('#lbDate').textContent=g.date;$('#lbText').textContent=g.text;
+    const multi=gallery.length>1;$('#lbPrev').style.display=$('#lbNext').style.display=multi?'':'none';
+    const dl=$('#lbDownload'),fname='photo-'+g.date.replace(/\./g,'')+'.jpg';
+    dl.style.display='none';
+    if(g.hd){
+        $('#lbImg').classList.add('loading');
+        hdURL(g.hd).then(u=>{if(lbIndex===idx){$('#lbImg').src=u;$('#lbImg').classList.remove('loading');}dl.href=u;dl.download=fname;dl.style.display='';})
+        .catch(()=>{$('#lbImg').classList.remove('loading');if(/^(data:|blob:)/.test(g.src)){dl.href=g.src;dl.download=fname;dl.style.display='';}});
+    }else if(/^(data:|blob:)/.test(g.src)){dl.href=g.src;dl.download=fname;dl.style.display='';}
+}
 const lbStep=d=>{lbIndex=(lbIndex+d+gallery.length)%gallery.length;showLb();};
 
 /* ============================================================
    7. 写 / 编辑回忆
 ============================================================ */
-let pendingImage='',selectedMood='',editing=null;
+let pendingImage='',pendingFile=null,selectedMood='',editing=null;
 const MOODS=['😍 开心','🥰 甜蜜','🥲 感动','😋 好吃','✨ 难忘','🌧 想念'];
-/* 显示用图源：会话内已恢复/已传的优先用 localPhotos，否则用记录里的值（内嵌base64 或 旧仓库路径） */
+/* 显示用图源：会话内已恢复/已传的优先用 localPhotos，否则用记录里的预览图(base64)或旧路径 */
 const imgSrc=m=>(m&&(localPhotos[m.image]||m.image))||'';
 function buildMoodChips(){const box=$('#amMood');box.innerHTML=MOODS.map(m=>'<button type="button" data-m="'+esc(m)+'">'+esc(m)+'</button>').join('');box.onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.classList.contains('on')){b.classList.remove('on');selectedMood='';return;}$$('button',box).forEach(x=>x.classList.remove('on'));b.classList.add('on');selectedMood=b.dataset.m;};}
 function setMoodUI(m){selectedMood=m||'';$$('#amMood button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));}
 function setPreview(src){const p=$('#amPreview'),r=$('#amRemove');if(src){p.src=src;p.style.display='block';r.style.display='inline-block';}else{p.src='';p.style.display='none';r.style.display='none';}}
-function openAdd(){if(!TOKEN)return openOv('#tokenOverlay');editing=null;pendingImage='';setMoodUI('');$('#amText').value='';$('#amFile').value='';setPreview('');const t=new Date();$('#amDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());$('#addTitle').textContent='✎ 写下此刻';$('#amSave').textContent='记下来';openOv('#addOverlay');}
-function openEdit(idx){const m=S.memory.items[idx];if(!m)return;if(!TOKEN)return openOv('#tokenOverlay');editing={createdAt:m.createdAt,num:m.__num||null};pendingImage=m.image||'';setMoodUI(m.mood||'');$('#amText').value=m.content||'';$('#amFile').value='';setPreview(imgSrc(m));$('#amDate').value=(m.date&&String(m.date).length===10)?m.date:(()=>{const d=memDate(m);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());})();$('#addTitle').textContent='✎ 编辑这一刻';$('#amSave').textContent='保存修改';openOv('#addOverlay');}
+function openAdd(){if(!TOKEN)return openOv('#tokenOverlay');editing=null;pendingImage='';pendingFile=null;setMoodUI('');$('#amText').value='';$('#amFile').value='';setPreview('');const t=new Date();$('#amDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());$('#addTitle').textContent='✎ 写下此刻';$('#amSave').textContent='记下来';openOv('#addOverlay');}
+function openEdit(idx){const m=S.memory.items[idx];if(!m)return;if(!TOKEN)return openOv('#tokenOverlay');editing={createdAt:m.createdAt,num:m.__num||null,hd:m.hd||''};pendingImage=m.image||'';pendingFile=null;setMoodUI(m.mood||'');$('#amText').value=m.content||'';$('#amFile').value='';setPreview(imgSrc(m));$('#amDate').value=(m.date&&String(m.date).length===10)?m.date:(()=>{const d=memDate(m);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());})();$('#addTitle').textContent='✎ 编辑这一刻';$('#amSave').textContent='保存修改';openOv('#addOverlay');}
 
-/* 照片内嵌进记录里（最稳，两端都显示、不依赖发布）。在 Issue 正文上限内尽量保清晰。 */
+/* 预览图：压到能内嵌进 Issue 正文（保证任何设备/甜蜜小窝都秒显示） */
 function compressImage(dataUrl,maxChars,cb){
     const img=new Image();
     img.onload=()=>{
-        const widths=[1600,1440,1280,1120,1000,880,760,640,520,420],qs=[0.9,0.84,0.78,0.7,0.62],cv=document.createElement('canvas'),ctx=cv.getContext('2d');
+        const widths=[1280,1120,1000,880,760,640,520,420],qs=[0.86,0.8,0.72,0.64],cv=document.createElement('canvas'),ctx=cv.getContext('2d');
         const at=(w,qq)=>{const tw=Math.min(w,img.width),th=Math.max(1,Math.round(img.height*(tw/img.width)));cv.width=tw;cv.height=th;ctx.clearRect(0,0,tw,th);ctx.drawImage(img,0,0,tw,th);for(const q of qq){const o=cv.toDataURL('image/jpeg',q);if(o.length<=maxChars)return o;}return null;};
-        for(const w of widths){const o=at(w,qs);if(o)return cb(o);}cb(at(360,[0.55,0.45,0.38,0.3]));
+        for(const w of widths){const o=at(w,qs);if(o)return cb(o);}cb(at(360,[0.5,0.42,0.34,0.28]));
     };
     img.onerror=()=>cb(null);img.src=dataUrl;
+}
+function extOf(file){const t=(file.type||'').toLowerCase();if(t.indexOf('png')>=0)return 'png';if(t.indexOf('webp')>=0)return 'webp';if(t.indexOf('gif')>=0)return 'gif';if(t.indexOf('heic')>=0||t.indexOf('heif')>=0)return 'heic';if(t.indexOf('jpeg')>=0||t.indexOf('jpg')>=0)return 'jpg';const n=(file.name||'').toLowerCase(),mm=n.match(/\.([a-z0-9]+)$/);return mm?mm[1]:'jpg';}
+function fileToDataURL(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej({type:'bad-image'});r.readAsDataURL(file);});}
+/* 上传原图字节（不压缩、不缩放）到仓库，返回相对路径 */
+async function uploadPhoto(dataUrl,ext){
+    const base64=(dataUrl.split(',')[1]||'');if(!base64)throw{type:'bad-image'};
+    const path=PHOTO_DIR+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+(ext||'jpg');
+    await api(API_CONTENTS+'/'+path,{method:'PUT',body:JSON.stringify({message:'add photo '+path,content:base64})});
+    return path;
+}
+/* 通过 GitHub 接口把仓库原图取成同源 blob（任何设备可见 & 海报不会被污染、可导出） */
+async function fetchRepoBlob(path){
+    const r=await fetch(API_CONTENTS+'/'+path.split('/').map(encodeURIComponent).join('/')+'?_ts='+Date.now(),{cache:'no-store',headers:{'Authorization':'Bearer '+TOKEN,'Accept':'application/vnd.github.raw','X-GitHub-Api-Version':'2022-11-28'}});
+    if(!r.ok)throw{type:'http',status:r.status};
+    return await r.blob();
+}
+async function hdURL(path){
+    if(!path)return '';
+    if(localPhotos[path])return localPhotos[path];
+    const blob=await fetchRepoBlob(path);const u=URL.createObjectURL(blob);localPhotos[path]=u;return u;
 }
 async function saveMoment(){
     const date=$('#amDate').value,text=$('#amText').value.trim();
     if(!date)return toast('选一下是哪一天吧');
-    if(!text&&!pendingImage)return toast('写点什么、或放张照片');
-    const btn=$('#amSave'),orig=btn.textContent;btn.disabled=true;btn.textContent='保存中…';setSync('busy');
+    if(!text&&!pendingFile&&!pendingImage)return toast('写点什么、或放张照片');
+    const btn=$('#amSave'),orig=btn.textContent;btn.disabled=true;setSync('busy');
+    let imageField=pendingImage||'',hdField=(editing?editing.hd:'')||'';
+    if(pendingFile){
+        btn.textContent='处理照片…';
+        const durl=await fileToDataURL(pendingFile).catch(()=>null);
+        if(!durl){btn.disabled=false;btn.textContent=orig;setSync('synced');return toast('这张图读不出来，换一张');}
+        imageField=await new Promise(res=>compressImage(durl,55000,res))||'';
+        btn.textContent='上传原图…';
+        try{hdField=await uploadPhoto(durl,extOf(pendingFile));localPhotos[hdField]=URL.createObjectURL(pendingFile);}
+        catch(e){hdField='';toast('原图上传失败，已存预览图');}
+    }
+    if(!imageField)hdField='';
+    btn.textContent='保存中…';
     try{
         if(editing){
-            const data={date,content:text,mood:selectedMood,image:pendingImage||'',createdAt:editing.createdAt};
+            const data={date,content:text,mood:selectedMood,image:imageField,hd:hdField,createdAt:editing.createdAt};
             let num=editing.num||await findNum(LABEL.memory,editing.createdAt);
             if(num)await patchIssue(num,data);else await addIssue(LABEL.memory,data);
             const i=S.memory.items.findIndex(x=>x.createdAt===editing.createdAt);if(i>=0){data.__num=S.memory.items[i].__num;S.memory.items[i]=data;}
             sortMem(S.memory.items);toast('改好啦 ✨');
         }else{
-            await S.memory.add({date,content:text,mood:selectedMood,image:pendingImage||''});sortMem(S.memory.items);toast('已记下这一刻 ✨');burstHearts($('#addFab'));
+            await S.memory.add({date,content:text,mood:selectedMood,image:imageField,hd:hdField});sortMem(S.memory.items);toast('已记下这一刻 ✨');burstHearts($('#addFab'));
         }
         saveSnap();render();closeOv('#addOverlay');setSync('synced');setTimeout(loadAll,1500);
     }catch(err){toast(err&&err.type==='too-large'?'照片太大了，换一张再试':'保存失败，检查网络或 Token');setSync('bad');}
     finally{btn.disabled=false;btn.textContent=orig;}
 }
-/* 恢复：把之前“存成仓库文件”的照片直接从云端读回来显示（不依赖 GitHub Pages 发布） */
-let repoBranch=null;
+/* 恢复旧版“只存了路径”的照片：取成同源 blob 显示（不依赖 Pages，也不会污染海报） */
 async function recoverRepoPhotos(){
     const paths=S.memory.items.filter(m=>m.image&&!/^(data:|https?:|blob:)/.test(m.image)&&!localPhotos[m.image]).map(m=>m.image);
     if(!paths.length)return;
-    try{
-        if(!repoBranch){const info=await api('https://api.github.com/repos/'+CFG.owner+'/'+CFG.repo);repoBranch=(info&&info.default_branch)||'main';}
-        const base='https://raw.githubusercontent.com/'+CFG.owner+'/'+CFG.repo+'/'+repoBranch+'/';
-        paths.forEach(p=>{localPhotos[p]=base+p.split('/').map(encodeURIComponent).join('/');});
-        render();
-    }catch(e){}
+    let any=false;
+    await Promise.all(paths.map(async p=>{try{const b=await fetchRepoBlob(p);localPhotos[p]=URL.createObjectURL(b);any=true;}catch(e){}}));
+    if(any)render();
 }
 async function deleteMoment(idx){
     const m=S.memory.items[idx];if(!m||!confirm('删掉这个瞬间？甜蜜小窝里也会一起删除。'))return;
@@ -1011,13 +1056,15 @@ function finishPoster(){
         },'image/png');
     }catch(e){posterFail();}
 }
-function renderPoster(){
+async function renderPoster(){
     const cv=$('#posterCanvas'),W=1080,H=1440,dpr=Math.min(2,window.devicePixelRatio||1);
     cv.width=W*dpr;cv.height=H*dpr;cv.style.aspectRatio='3 / 4';
     const ctx=cv.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
     $('#posterCycle').style.display=gallery.length>1?'inline-flex':'none';
     const photo=gallery.length?gallery[posterIdx%gallery.length]:null;
-    if(photo){const im=new Image();im.onload=()=>{paintPhoto(ctx,im,W,H);finishPoster();};im.onerror=()=>{paintArt(ctx,W,H);finishPoster();};im.src=photo.src;}
+    let src=photo?photo.src:null;
+    if(photo&&photo.hd){try{src=await hdURL(photo.hd);}catch(e){}}
+    if(src){const im=new Image();im.onload=()=>{paintPhoto(ctx,im,W,H);finishPoster();};im.onerror=()=>{paintArt(ctx,W,H);finishPoster();};im.src=src;}
     else{paintArt(ctx,W,H);finishPoster();}
 }
 function openPoster(){posterIdx=0;renderPoster();openOv('#posterOverlay');}
@@ -1105,8 +1152,8 @@ function bind(){
 
     // 写/编辑回忆
     $('#amCancel').onclick=()=>closeOv('#addOverlay');$('#amSave').onclick=saveMoment;
-    $('#amRemove').onclick=()=>{pendingImage='';setPreview('');$('#amFile').value='';};
-    $('#amFile').onchange=e=>{const f=e.target.files&&e.target.files[0];if(!f)return;if(!/^image\//.test(f.type||'')&&!/\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(f.name||'')){toast('请选择图片文件');return;}const rd=new FileReader();rd.onload=ev=>compressImage(ev.target.result,62000,o=>{if(!o)return toast('这张图处理不了，换一张');pendingImage=o;setPreview(o);});rd.readAsDataURL(f);};
+    $('#amRemove').onclick=()=>{pendingImage='';pendingFile=null;setPreview('');$('#amFile').value='';};
+    $('#amFile').onchange=e=>{const f=e.target.files&&e.target.files[0];if(!f)return;if(!/^image\//.test(f.type||'')&&!/\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(f.name||'')){toast('请选择图片文件');return;}pendingFile=f;pendingImage='';setPreview(URL.createObjectURL(f));};
 
     $('#tgCancel').onclick=()=>closeOv('#targetOverlay');$('#tgSave').onclick=saveTarget;
     $('#sdCancel').onclick=()=>closeOv('#sdOverlay');$('#sdSave').onclick=saveSD;
