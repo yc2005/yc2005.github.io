@@ -1066,6 +1066,24 @@
                 });
             }
 
+            // ===== 原图（与 our-story 同原理）：预览图存正文，原图存仓库，点开看原图 =====
+            const FX_PHOTO_DIR = 'our-story-photos';
+            const FX_CONTENTS = `https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/contents`;
+            const _fxHdCache = {};
+            let _memHdOriginal = '', _memHdExt = '';
+            function fxMime(p){const e=(p.split('.').pop()||'').toLowerCase();return e==='png'?'image/png':e==='gif'?'image/gif':e==='webp'?'image/webp':(e==='heic'||e==='heif')?'image/heic':'image/jpeg';}
+            function fxB64ToBlob(b64,mime){const bin=atob(String(b64).replace(/\s/g,''));const n=bin.length,a=new Uint8Array(n);for(let i=0;i<n;i++)a[i]=bin.charCodeAt(i);return new Blob([a],{type:mime||'application/octet-stream'});}
+            async function fxFetchBlob(path,sha){
+                let b64=null;
+                if(!sha){const meta=await githubAPI(FX_CONTENTS+'/'+path.split('/').map(encodeURIComponent).join('/'));if(meta&&meta.encoding==='base64'&&meta.content)b64=meta.content;sha=meta&&meta.sha;}
+                if(b64==null){if(!sha)throw{type:'no-sha'};const b=await githubAPI(`https://api.github.com/repos/${GITHUB_USERNAME}/${GITHUB_REPO}/git/blobs/`+sha);b64=b&&b.content;}
+                if(b64==null)throw{type:'no-content'};
+                return fxB64ToBlob(b64,fxMime(path));
+            }
+            async function fxHdURL(path,sha){if(!path)return '';if(_fxHdCache[path])return _fxHdCache[path];const blob=await fxFetchBlob(path,sha);const u=URL.createObjectURL(blob);_fxHdCache[path]=u;return u;}
+            function fxExtOf(file){const t=(file.type||'').toLowerCase();if(t.indexOf('png')>=0)return 'png';if(t.indexOf('webp')>=0)return 'webp';if(t.indexOf('gif')>=0)return 'gif';if(t.indexOf('heic')>=0||t.indexOf('heif')>=0)return 'heic';const n=(file.name||'').toLowerCase(),m=n.match(/\.([a-z0-9]+)$/);return m?m[1]:'jpg';}
+            async function fxUploadPhoto(dataUrl,ext){const base64=(dataUrl.split(',')[1]||'');if(!base64)throw{type:'bad-image'};const path=FX_PHOTO_DIR+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+(ext||'jpg');const res=await githubAPI(FX_CONTENTS+'/'+path,{method:'PUT',body:JSON.stringify({message:'add photo '+path,content:base64})});return {path:path,sha:(res&&res.content&&res.content.sha)||''};}
+
             // ============ Issues 管理 ============
             function issueLabel(type) {
                 const labels = {
@@ -2112,7 +2130,7 @@ async function renameTag(tag) {
                         <div class="memory-date">📅 ${mem.date || ''}${mem.createdAt ? ' · 🕒 ' + fmtHMS(mem.createdAt) : ''}</div>
                         <div class="memory-content">${escapeHTML(mem.content)}</div>
                         <span class="memory-mood">${mem.mood || '🥰'}</span>
-                        ${mem.image ? `<img class="memory-image" src="${escapeHTML(mem.image)}" onclick="openLightbox('${escapeHTML(mem.image)}')">` : ''}
+                        ${mem.image ? `<img class="memory-image" src="${escapeHTML(mem.image)}" onclick="openLightbox(this.src, '${escapeHTML(mem.hd||'')}', '${escapeHTML(mem.hdSha||'')}')">` : ''}
                     `;
                     card.querySelector('.delete-memory').addEventListener('click', async function(e) {
                         e.stopPropagation();
@@ -2132,6 +2150,7 @@ async function renameTag(tag) {
                 $('#memoryImageUrl').value = '';
                 $('#memoryImageFile').value = '';
                 $('#memoryImagePreview').style.display = 'none';
+                _memHdOriginal = ''; _memHdExt = '';
             }
 
             function closeMemoryModal() {
@@ -2158,11 +2177,17 @@ async function renameTag(tag) {
                 
                 closeMemoryModal();
                 setSyncStatus('syncing');
+                // 与 our-story 同原理：原图传到仓库，正文只存预览图 + 原图路径(hd)
+                if (_memHdOriginal) {
+                    try { const up = await fxUploadPhoto(_memHdOriginal, _memHdExt); memory.hd = up.path; memory.hdSha = up.sha; _fxHdCache[up.path] = _memHdOriginal; }
+                    catch (e) {}
+                    _memHdOriginal = ''; _memHdExt = '';
+                }
                 const ok = await createIssue('memory', memory);
                 isSyncing = false;
                 if (ok) {
                     setSyncStatus('synced');
-                    
+                    renderMemories();
                     showToast('💌 回忆已保存并同步！');
                 } else {
                     const idx = memories.indexOf(memory);
@@ -2178,7 +2203,8 @@ async function renameTag(tag) {
                 showToast('🖼️ 正在压缩图片...');
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    compressImageToLimit(e.target.result, 60000, function(compressed) {
+                    _memHdOriginal = e.target.result; _memHdExt = fxExtOf(file);
+                    compressImageToLimit(e.target.result, 26000, function(compressed) {
                         if (!compressed) { showToast('⚠️ 图片太大，请换一张小一点的'); return; }
                         const preview = $('#memoryImagePreview');
                         preview.src = compressed;
@@ -2235,9 +2261,14 @@ async function renameTag(tag) {
                 return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
             }
 
-            function openLightbox(src) {
-                $('#lightboxImg').src = src;
+            function openLightbox(src, hd, sha) {
+                const img = $('#lightboxImg');
+                img.src = src;
                 $('#lightbox').classList.add('open');
+                if (hd) {
+                    img.style.opacity = '0.7';
+                    fxHdURL(hd, sha).then(function(u){ img.src = u; img.style.opacity = '1'; }).catch(function(){ img.style.opacity = '1'; });
+                } else { img.style.opacity = '1'; }
             }
             function closeLightbox() {
                 $('#lightbox').classList.remove('open');
