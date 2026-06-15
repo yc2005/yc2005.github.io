@@ -666,23 +666,34 @@ const sortMem=a=>a.sort((x,y)=>new Date(y.date||y.createdAt||0)-new Date(x.date|
 function saveSnap(){ls.set(CFG.snapKey,JSON.stringify({startDate:S.startDate,memory:S.memory.items,target:S.target.items,capsule:S.capsule.items}));}
 function loadSnap(){try{const s=JSON.parse(ls.get(CFG.snapKey)||'null');if(!s)return false;S.startDate=s.startDate||S.startDate;S.memory.set(s.memory||[]);S.target.set(s.target||[]);S.capsule.set(s.capsule||[]);return true;}catch(e){return false;}}
 
-async function loadAll(){
+let _osSig=null,_osFirst=true,_osBusy=false;
+async function loadAll(silent){
     if(!TOKEN){setSync('no-token');return false;}
-    setSync('busy');
+    if(!silent)setSync('busy');
     try{
-        const [mem,ann,tg,cap,pg]=await Promise.all([list(LABEL.memory),list(LABEL.anniversary),list(LABEL.target),list(LABEL.capsule),list(LABEL.ping)]);
-        S.memory.set(sortMem(mem));
-        S.target.set((tg||[]).filter(t=>t&&t.date));
-        S.capsule.set((cap||[]).filter(c=>c&&c.unlockDate));
-        S.ping.set(pg||[]);
-        if(ann&&ann.length){const latest=ann.slice().sort((a,b)=>new Date(b.updatedAt||0)-new Date(a.updatedAt||0))[0];if(latest&&latest.date)S.startDate=latest.date;}
-        setSync('synced');saveSnap();render();checkPings();recoverRepoPhotos();return true;
+        const all=await api(API+'?state=open&per_page=100'); // 一个请求取回全部，减少请求数
+        const sig=(all||[]).map(i=>i.number+':'+i.updated_at).join('|');
+        setSync('synced');
+        if(sig===_osSig)return true; // 云端无变化 → 不重渲染，消除轮询闪烁
+        _osSig=sig;
+        const grp={};
+        (all||[]).forEach(iss=>{let d=null;try{d=JSON.parse(iss.body);}catch(e){}if(!d||typeof d!=='object')return;d.__num=iss.number;(iss.labels||[]).forEach(l=>{const n=typeof l==='string'?l:l.name;(grp[n]=grp[n]||[]).push(d);});});
+        S.memory.set(sortMem(grp[LABEL.memory]||[]));
+        S.target.set((grp[LABEL.target]||[]).filter(t=>t&&t.date));
+        S.capsule.set((grp[LABEL.capsule]||[]).filter(c=>c&&c.unlockDate));
+        S.ping.set(grp[LABEL.ping]||[]);
+        const ann=grp[LABEL.anniversary]||[];
+        if(ann.length){const latest=ann.slice().sort((a,b)=>new Date(b.updatedAt||0)-new Date(a.updatedAt||0))[0];if(latest&&latest.date)S.startDate=latest.date;}
+        saveSnap();render();checkPings();
+        if(_osFirst){_osFirst=false;recoverRepoPhotos();}
+        return true;
     }catch(err){
         if(err&&(err.type==='no-token'||err.type==='bad-token')){setSync('no-token');openOv('#tokenOverlay');}
         else setSync('bad');
         return false;
     }
 }
+function startPolling(){setInterval(()=>{if(!TOKEN||_osBusy)return;_osBusy=true;loadAll(true).finally(()=>{_osBusy=false;});},6000);}
 
 /* ============================================================
    4. 计算
@@ -797,7 +808,7 @@ function renderBadges(){
 
 /* 灯箱图集 */
 let gallery=[],lbIndex=0;
-function buildGallery(){gallery=S.memory.items.filter(m=>m.image).map(m=>({src:imgSrc(m),hd:m.hd||'',date:Dates.fmt(memDate(m)),text:m.content||''}));}
+function buildGallery(){gallery=S.memory.items.filter(m=>m.image).map(m=>({src:imgSrc(m),hd:m.hd||'',hdSha:m.hdSha||'',date:Dates.fmt(memDate(m)),text:m.content||''}));}
 function galleryIndex(m){if(!m.image)return -1;let c=0;for(const x of S.memory.items){if(x.image){if(x===m)return c;c++;}}return -1;}
 
 /* ============================================================
@@ -816,7 +827,7 @@ function showLb(){
     dl.style.display='none';
     if(g.hd){
         $('#lbImg').classList.add('loading');
-        hdURL(g.hd).then(u=>{if(lbIndex===idx){$('#lbImg').src=u;$('#lbImg').classList.remove('loading');}dl.href=u;dl.download=fname;dl.style.display='';})
+        hdURL(g.hd,g.hdSha).then(u=>{if(lbIndex===idx){$('#lbImg').src=u;$('#lbImg').classList.remove('loading');}dl.href=u;dl.download=fname;dl.style.display='';})
         .catch(()=>{$('#lbImg').classList.remove('loading');if(/^(data:|blob:)/.test(g.src)){dl.href=g.src;dl.download=fname;dl.style.display='';}});
     }else if(/^(data:|blob:)/.test(g.src)){dl.href=g.src;dl.download=fname;dl.style.display='';}
 }
@@ -833,7 +844,7 @@ function buildMoodChips(){const box=$('#amMood');box.innerHTML=MOODS.map(m=>'<bu
 function setMoodUI(m){selectedMood=m||'';$$('#amMood button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));}
 function setPreview(src){const p=$('#amPreview'),r=$('#amRemove');if(src){p.src=src;p.style.display='block';r.style.display='inline-block';}else{p.src='';p.style.display='none';r.style.display='none';}}
 function openAdd(){if(!TOKEN)return openOv('#tokenOverlay');editing=null;pendingImage='';pendingFile=null;setMoodUI('');$('#amText').value='';$('#amFile').value='';setPreview('');const t=nowCN();$('#amDate').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());$('#addTitle').textContent='✎ 写下此刻';$('#amSave').textContent='记下来';openOv('#addOverlay');}
-function openEdit(idx){const m=S.memory.items[idx];if(!m)return;if(!TOKEN)return openOv('#tokenOverlay');editing={createdAt:m.createdAt,num:m.__num||null,hd:m.hd||''};pendingImage=m.image||'';pendingFile=null;setMoodUI(m.mood||'');$('#amText').value=m.content||'';$('#amFile').value='';setPreview(imgSrc(m));$('#amDate').value=(m.date&&String(m.date).length===10)?m.date:(()=>{const d=memDate(m);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());})();$('#addTitle').textContent='✎ 编辑这一刻';$('#amSave').textContent='保存修改';openOv('#addOverlay');}
+function openEdit(idx){const m=S.memory.items[idx];if(!m)return;if(!TOKEN)return openOv('#tokenOverlay');editing={createdAt:m.createdAt,num:m.__num||null,hd:m.hd||'',hdSha:m.hdSha||''};pendingImage=m.image||'';pendingFile=null;setMoodUI(m.mood||'');$('#amText').value=m.content||'';$('#amFile').value='';setPreview(imgSrc(m));$('#amDate').value=(m.date&&String(m.date).length===10)?m.date:(()=>{const d=memDate(m);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());})();$('#addTitle').textContent='✎ 编辑这一刻';$('#amSave').textContent='保存修改';openOv('#addOverlay');}
 
 /* 预览图：压到能内嵌进 Issue 正文（保证任何设备/甜蜜小窝都秒显示） */
 function compressImage(dataUrl,maxChars,cb){
@@ -851,46 +862,60 @@ function fileToDataURL(file){return new Promise((res,rej)=>{const r=new FileRead
 async function uploadPhoto(dataUrl,ext){
     const base64=(dataUrl.split(',')[1]||'');if(!base64)throw{type:'bad-image'};
     const path=PHOTO_DIR+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+(ext||'jpg');
-    await api(API_CONTENTS+'/'+path,{method:'PUT',body:JSON.stringify({message:'add photo '+path,content:base64})});
-    return path;
+    const res=await api(API_CONTENTS+'/'+path,{method:'PUT',body:JSON.stringify({message:'add photo '+path,content:base64})});
+    return {path:path,sha:(res&&res.content&&res.content.sha)||''};
 }
 /* 通过 GitHub 接口把仓库原图取成同源 blob（任何设备可见 & 海报不会被污染、可导出） */
-async function fetchRepoBlob(path){
-    const r=await fetch(API_CONTENTS+'/'+path.split('/').map(encodeURIComponent).join('/')+'?_ts='+Date.now(),{cache:'no-store',headers:{'Authorization':'Bearer '+TOKEN,'Accept':'application/vnd.github.raw','X-GitHub-Api-Version':'2022-11-28'}});
-    if(!r.ok)throw{type:'http',status:r.status};
-    return await r.blob();
+function mimeFromPath(p){const e=(p.split('.').pop()||'').toLowerCase();return e==='png'?'image/png':e==='gif'?'image/gif':e==='webp'?'image/webp':(e==='heic'||e==='heif')?'image/heic':'image/jpeg';}
+function b64ToBlob(b64,mime){const bin=atob(String(b64).replace(/\s/g,''));const n=bin.length,a=new Uint8Array(n);for(let i=0;i<n;i++)a[i]=bin.charCodeAt(i);return new Blob([a],{type:mime||'application/octet-stream'});}
+/* 取仓库原图：走 JSON 接口（contents→blobs），把 base64 解码成同源 blob。
+   不再用 vnd.github.raw（它会 302 跳到 raw.githubusercontent 触发跨域，导致原图加载失败、海报被污染）。 */
+async function fetchRepoBlob(path,sha){
+    let b64=null;
+    if(!sha){
+        const meta=await api(API_CONTENTS+'/'+path.split('/').map(encodeURIComponent).join('/'));
+        if(meta&&meta.encoding==='base64'&&meta.content)b64=meta.content;
+        sha=meta&&meta.sha;
+    }
+    if(b64==null){
+        if(!sha)throw{type:'no-sha'};
+        const blob=await api('https://api.github.com/repos/'+CFG.owner+'/'+CFG.repo+'/git/blobs/'+sha);
+        b64=blob&&blob.content;
+    }
+    if(b64==null)throw{type:'no-content'};
+    return b64ToBlob(b64,mimeFromPath(path));
 }
-async function hdURL(path){
+async function hdURL(path,sha){
     if(!path)return '';
     if(localPhotos[path])return localPhotos[path];
-    const blob=await fetchRepoBlob(path);const u=URL.createObjectURL(blob);localPhotos[path]=u;return u;
+    const blob=await fetchRepoBlob(path,sha);const u=URL.createObjectURL(blob);localPhotos[path]=u;return u;
 }
 async function saveMoment(){
     const date=$('#amDate').value,text=$('#amText').value.trim();
     if(!date)return toast('选一下是哪一天吧');
     if(!text&&!pendingFile&&!pendingImage)return toast('写点什么、或放张照片');
     const btn=$('#amSave'),orig=btn.textContent;btn.disabled=true;setSync('busy');
-    let imageField=pendingImage||'',hdField=(editing?editing.hd:'')||'';
+    let imageField=pendingImage||'',hdField=(editing?editing.hd:'')||'',hdShaField=(editing?editing.hdSha:'')||'';
     if(pendingFile){
         btn.textContent='处理照片…';
         const durl=await fileToDataURL(pendingFile).catch(()=>null);
         if(!durl){btn.disabled=false;btn.textContent=orig;setSync('synced');return toast('这张图读不出来，换一张');}
-        imageField=await new Promise(res=>compressImage(durl,55000,res))||'';
+        imageField=await new Promise(res=>compressImage(durl,26000,res))||'';
         btn.textContent='上传原图…';
-        try{hdField=await uploadPhoto(durl,extOf(pendingFile));localPhotos[hdField]=URL.createObjectURL(pendingFile);}
-        catch(e){hdField='';toast('原图上传失败，已存预览图');}
+        try{const up=await uploadPhoto(durl,extOf(pendingFile));hdField=up.path;hdShaField=up.sha;localPhotos[hdField]=URL.createObjectURL(pendingFile);}
+        catch(e){hdField='';hdShaField='';toast('原图上传失败，已存预览图');}
     }
-    if(!imageField)hdField='';
+    if(!imageField){hdField='';hdShaField='';}
     btn.textContent='保存中…';
     try{
         if(editing){
-            const data={date,content:text,mood:selectedMood,image:imageField,hd:hdField,createdAt:editing.createdAt};
+            const data={date,content:text,mood:selectedMood,image:imageField,hd:hdField,hdSha:hdShaField,createdAt:editing.createdAt};
             let num=editing.num||await findNum(LABEL.memory,editing.createdAt);
             if(num)await patchIssue(num,data);else await addIssue(LABEL.memory,data);
             const i=S.memory.items.findIndex(x=>x.createdAt===editing.createdAt);if(i>=0){data.__num=S.memory.items[i].__num;S.memory.items[i]=data;}
             sortMem(S.memory.items);toast('改好啦 ✨');
         }else{
-            await S.memory.add({date,content:text,mood:selectedMood,image:imageField,hd:hdField});sortMem(S.memory.items);toast('已记下这一刻 ✨');burstHearts($('#addFab'));
+            await S.memory.add({date,content:text,mood:selectedMood,image:imageField,hd:hdField,hdSha:hdShaField});sortMem(S.memory.items);toast('已记下这一刻 ✨');burstHearts($('#addFab'));
         }
         saveSnap();render();closeOv('#addOverlay');setSync('synced');setTimeout(loadAll,1500);
     }catch(err){toast(err&&err.type==='too-large'?'照片太大了，换一张再试':'保存失败，检查网络或 Token');setSync('bad');}
@@ -962,6 +987,7 @@ function drawMemory(){
 ============================================================ */
 async function sendPing(){
     if(!TOKEN)return openOv('#tokenOverlay');
+    try{if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();}catch(e){}
     const btn=$('#pingBtn');btn.classList.remove('beat');void btn.offsetWidth;btn.classList.add('beat');burstHearts(btn);
     try{
         // 清掉自己之前的心动，避免堆积
@@ -971,18 +997,29 @@ async function sendPing(){
         toast('已经把想念送出去啦 💗');
     }catch(e){toast('没送出去，检查下网络');}
 }
+let _pingInit=false;
+function notifyOS(title,body){
+    try{
+        if(!('Notification'in window)||Notification.permission!=='granted')return;
+        if(navigator.serviceWorker&&navigator.serviceWorker.controller)navigator.serviceWorker.controller.postMessage({type:'notify',title:title,body:body});
+        else new Notification(title,{body:body});
+    }catch(e){}
+}
 function checkPings(){
     const seen=parseInt(ls.get(CFG.pingSeenKey)||'0',10);
     const partner=S.ping.items.filter(p=>p.by&&p.by!==MY&&p.at);
-    if(!partner.length)return;
-    const latest=partner.sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
-    const ts=new Date(latest.at).getTime();
-    if(ts>seen){
-        const d=new Date(latest.at);
-        $('#pingBannerText').textContent='💗 TA 在 '+pad(d.getHours())+':'+pad(d.getMinutes())+' 想你了';
-        $('#pingBanner').classList.add('show');
-        ls.set(CFG.pingSeenKey,String(ts));
+    if(partner.length){
+        const latest=partner.sort((a,b)=>new Date(b.at)-new Date(a.at))[0];
+        const ts=new Date(latest.at).getTime();
+        if(ts>seen){
+            const d=new Date(latest.at),msg='TA 在 '+pad(d.getHours())+':'+pad(d.getMinutes())+' 想你了';
+            $('#pingBannerText').textContent='💗 '+msg;
+            $('#pingBanner').classList.add('show');
+            if(_pingInit)notifyOS('💗 想你了',msg); // 首次进页面只显示横幅；轮询到新心动才弹系统通知
+            ls.set(CFG.pingSeenKey,String(ts));
+        }
     }
+    _pingInit=true;
 }
 
 /* ============================================================
@@ -1064,7 +1101,7 @@ async function renderPoster(){
     $('#posterCycle').style.display=gallery.length>1?'inline-flex':'none';
     const photo=gallery.length?gallery[posterIdx%gallery.length]:null;
     let src=photo?photo.src:null;
-    if(photo&&photo.hd){try{src=await hdURL(photo.hd);}catch(e){}}
+    if(photo&&photo.hd){try{src=await hdURL(photo.hd,photo.hdSha);}catch(e){}}
     if(src){const im=new Image();im.onload=()=>{paintPhoto(ctx,im,W,H);finishPoster();};im.onerror=()=>{paintArt(ctx,W,H);finishPoster();};im.src=src;}
     else{paintArt(ctx,W,H);finishPoster();}
 }
@@ -1221,7 +1258,9 @@ function init(){
     buildThemePop();markTheme(document.documentElement.getAttribute('data-theme')||'sunset');
     buildMoodChips();bind();buildNav();spawnFloaties();setupParallax();setupTilt();
     loadSnap();render();observeReveals(document);
+    if('serviceWorker'in navigator){try{navigator.serviceWorker.register('sw.js').catch(function(){});}catch(e){}}
     if(TOKEN)loadAll();else{setSync('no-token');setTimeout(()=>openOv('#tokenOverlay'),600);}
+    startPolling();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
