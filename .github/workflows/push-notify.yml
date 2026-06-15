@@ -1,6 +1,6 @@
-name: 新订单推送（钉钉 + 微信）
+name: 新消息推送（钉钉 + 微信）
 
-# 对方下单（创建订单 Issue）时自动触发
+# 下单 或 "想你了" 都触发
 on:
   issues:
     types: [opened]
@@ -10,12 +10,15 @@ permissions:
 
 jobs:
   notify:
-    if: contains(github.event.issue.labels.*.name, 'sweet-order')
+    if: |
+      contains(github.event.issue.labels.*.name, 'sweet-order') ||
+      contains(github.event.issue.labels.*.name, 'sweet-ping')
     runs-on: ubuntu-latest
     steps:
-      - name: 同时推送到钉钉和微信
+      - name: 推送到钉钉和微信
         env:
-          ORDER_BODY: ${{ github.event.issue.body }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          IS_ORDER: ${{ contains(github.event.issue.labels.*.name, 'sweet-order') }}
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           PUSHPLUS_TOPIC: ${{ secrets.PUSHPLUS_TOPIC }}
@@ -23,34 +26,54 @@ jobs:
           node -e '
             const e = process.env;
             let o = {};
-            try { o = JSON.parse(e.ORDER_BODY || "{}"); } catch (_) {}
+            try { o = JSON.parse(e.ISSUE_BODY || "{}"); } catch (_) {}
             const by = o.by || "对方";
-            const items = Array.isArray(o.items) ? o.items : [];
-            const count = items.reduce((s, i) => s + (i.qty || 1), 0);
-            const total = o.total != null ? o.total : "";
-            const list = items.map(i => (i.emoji || "") + i.name + " x" + (i.qty || 1)).join("、");
+            const isOrder = e.IS_ORDER === "true";
 
-            // 钉钉：纯文本，内容里必须含关键词「订单」
-            const dingContent = "【新订单】🍽️ " + by + " 下单啦！\n" + (list || "有新订单") + "\n共 " + count + " 样，合计 ¥" + total + "\n快去 App 看看~";
-            // 微信(PushPlus)：标题 + html 内容
-            const ppTitle = "🍽️ " + by + " 下单啦！";
-            const ppContent = (list || "有新订单") + "<br>共 " + count + " 样，合计 ¥" + total + "<br>快去 App 看看~";
+            let dingContent, ppTitle, ppContent;
+
+            if (isOrder) {
+              // ===== 新订单 =====
+              const items = Array.isArray(o.items) ? o.items : [];
+              const count = items.reduce((s, i) => s + (i.qty || 1), 0);
+              const total = o.total != null ? o.total : "";
+              const list = items.map(i => (i.emoji || "") + i.name + " x" + (i.qty || 1)).join("、");
+              // 钉钉：必须含关键词「订单」
+              dingContent = "【新订单】🍽️ " + by + " 下单啦！\n" + (list || "有新订单") + "\n共 " + count + " 样，合计 ¥" + total + "\n快去 App 看看~";
+              ppTitle = "🍽️ " + by + " 下单啦！";
+              ppContent = (list || "有新订单") + "<br>共 " + count + " 样，合计 ¥" + total + "<br>快去 App 看看~";
+            } else {
+              // ===== 想你了 =====
+              // 钉钉：必须含关键词「想你」（请在机器人安全设置里添加「想你」作为关键词）
+              dingContent = "【想你了】💗 " + by + " 想你了！\n快去看看《我们的故事》，回应一下吧~";
+              ppTitle = "💗 " + by + " 想你了！";
+              ppContent = "快去看看《我们的故事》，回应一下吧~";
+            }
 
             async function sendDing() {
               if (!e.DINGTALK_WEBHOOK) { console.log("钉钉：未配置，跳过"); return null; }
               try {
-                const r = await fetch(e.DINGTALK_WEBHOOK, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ msgtype: "text", text: { content: dingContent } }) });
+                const r = await fetch(e.DINGTALK_WEBHOOK, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ msgtype: "text", text: { content: dingContent } })
+                });
                 const j = await r.json();
                 console.log("钉钉返回:", JSON.stringify(j));
                 return j.errcode === 0;
               } catch (err) { console.error("钉钉异常:", err.message || String(err)); return false; }
             }
+
             async function sendPushPlus() {
               if (!e.PUSHPLUS_TOKEN) { console.log("微信(PushPlus)：未配置，跳过"); return null; }
               try {
                 const body = { token: e.PUSHPLUS_TOKEN, title: ppTitle, content: ppContent, template: "html" };
                 if (e.PUSHPLUS_TOPIC) body.topic = e.PUSHPLUS_TOPIC;
-                const r = await fetch("https://www.pushplus.plus/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+                const r = await fetch("https://www.pushplus.plus/send", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(body)
+                });
                 const j = await r.json();
                 console.log("微信(PushPlus)返回:", JSON.stringify(j));
                 return j.code === 200;
@@ -60,9 +83,15 @@ jobs:
             (async () => {
               const results = await Promise.all([sendDing(), sendPushPlus()]);
               const configured = results.filter(r => r !== null);
-              if (configured.length === 0) { console.error("没有配置任何推送渠道（DINGTALK_WEBHOOK / PUSHPLUS_TOKEN 都没设）"); process.exit(1); }
+              if (configured.length === 0) {
+                console.error("没有配置任何推送渠道（DINGTALK_WEBHOOK / PUSHPLUS_TOKEN 都没设）");
+                process.exit(1);
+              }
               const anyOk = configured.some(r => r === true);
-              if (!anyOk) { console.error("所有已配置的渠道都失败了，请看上面各自的返回。"); process.exit(1); }
+              if (!anyOk) {
+                console.error("所有已配置的渠道都失败了，请看上面各自的返回。");
+                process.exit(1);
+              }
               console.log("完成：至少一个渠道发送成功。");
             })();
           '
